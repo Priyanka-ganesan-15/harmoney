@@ -215,7 +215,7 @@ test("delete category removes associated budgets and recurring expenses", async 
   expect(budgetAfterDelete).toBeUndefined();
 
   // Verify recurring expense is removed (just check that API call succeeds)
-  let recurringRes = await page.request.get("/api/budgets/recurring?activeOnly=false");
+  const recurringRes = await page.request.get("/api/budgets/recurring?activeOnly=false");
   expect(recurringRes.ok()).toBeTruthy();
 });
 

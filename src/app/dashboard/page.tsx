@@ -5,6 +5,7 @@ import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions
 import { Account } from "@/server/models/account";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 import { formatMoney } from "@/lib/money";
+import { SpendingTrendsWidget, BudgetHealthWidget } from "@/components/analytics-widgets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -119,7 +120,7 @@ export default async function DashboardPage() {
   }, 0);
 
   return (
-    <main className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+    <main className="grid gap-5 lg:grid-cols-[1.2fr_1fr_1fr]">
       <section className="panel border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Overview</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -145,28 +146,31 @@ export default async function DashboardPage() {
         <p className="mt-3 text-sm text-muted">
           Accounts tracked: {accountCount}. Shared totals include active accounts only, with liabilities shown in Total owed.
         </p>
+
+        <section className="mt-6 space-y-4">
+          <p className="text-sm uppercase tracking-[0.22em] text-muted">Recent transactions</p>
+          <ul className="space-y-2">
+            {recentEntries.length === 0 ? (
+              <li className="text-sm text-muted">No transactions yet.</li>
+            ) : (
+              recentEntries.map((entry) => (
+                <li
+                  key={entry._id.toString()}
+                  className="flex items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                >
+                  <span className="text-foreground">{entry.description || entry.entryType}</span>
+                  <span className="font-medium text-foreground">
+                    {formatMoney(entry.amountMinor / 100, entry.currency)}
+                  </span>
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
       </section>
 
-      <section className="panel border-border rounded-3xl border p-6">
-        <p className="text-sm uppercase tracking-[0.22em] text-muted">Recent transactions</p>
-        <ul className="mt-3 space-y-2">
-          {recentEntries.length === 0 ? (
-            <li className="text-sm text-muted">No transactions yet.</li>
-          ) : (
-            recentEntries.map((entry) => (
-              <li
-                key={entry._id.toString()}
-                className="flex items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-              >
-                <span className="text-foreground">{entry.description || entry.entryType}</span>
-                <span className="font-medium text-foreground">
-                  {formatMoney(entry.amountMinor / 100, entry.currency)}
-                </span>
-              </li>
-            ))
-          )}
-        </ul>
-      </section>
+      <SpendingTrendsWidget />
+      <BudgetHealthWidget />
     </main>
   );
 }
