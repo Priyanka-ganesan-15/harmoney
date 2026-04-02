@@ -13,12 +13,20 @@ type AccountItem = {
   currency: string;
   currentBalanceMinor: number;
   accessScope: "shared" | "restricted";
+  minimumPaymentMinor: number | null;
+  paymentDueDay: number | null;
+  aprPercent: number | null;
 };
 
 type EditState = {
+  kind: string;
+  currency: string;
   name: string;
   institutionName: string;
   accessScope: "shared" | "restricted";
+  minimumPayment: string;
+  paymentDueDay: string;
+  aprPercent: string;
 };
 
 export default function AccountsPage() {
@@ -29,6 +37,7 @@ export default function AccountsPage() {
   const [isArchiving, setIsArchiving] = useState<string | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [createKind, setCreateKind] = useState("depository");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadAccounts() {
@@ -85,6 +94,21 @@ export default function AccountsPage() {
       kind: String(formData.get("kind") ?? "depository"),
       currency: String(formData.get("currency") ?? "USD"),
       openingBalance: String(formData.get("openingBalance") ?? "0"),
+      minimumPayment:
+        LIABILITY_KINDS.has(String(formData.get("kind") ?? "depository")) &&
+        String(formData.get("minimumPayment") ?? "")
+          ? String(formData.get("minimumPayment") ?? "")
+          : undefined,
+      paymentDueDay:
+        LIABILITY_KINDS.has(String(formData.get("kind") ?? "depository")) &&
+        String(formData.get("paymentDueDay") ?? "")
+          ? Number(formData.get("paymentDueDay"))
+          : undefined,
+      aprPercent:
+        LIABILITY_KINDS.has(String(formData.get("kind") ?? "depository")) &&
+        String(formData.get("aprPercent") ?? "")
+          ? Number(formData.get("aprPercent"))
+          : undefined,
       accessScope: String(formData.get("accessScope") ?? "shared"),
     };
 
@@ -105,6 +129,7 @@ export default function AccountsPage() {
     }
 
     form.reset();
+    setCreateKind("depository");
     await loadAccounts();
   }
 
@@ -112,9 +137,18 @@ export default function AccountsPage() {
     setErrorMessage(null);
     setEditingAccountId(account.id);
     setEditState({
+      kind: account.kind,
+      currency: account.currency,
       name: account.name,
       institutionName: account.institutionName,
       accessScope: account.accessScope,
+      minimumPayment:
+        account.minimumPaymentMinor !== null
+          ? (account.minimumPaymentMinor / 100).toFixed(2)
+          : "",
+      paymentDueDay:
+        account.paymentDueDay !== null ? String(account.paymentDueDay) : "",
+      aprPercent: account.aprPercent !== null ? String(account.aprPercent) : "",
     });
   }
 
@@ -134,7 +168,21 @@ export default function AccountsPage() {
     const response = await fetch(`/api/accounts/${accountId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(editState),
+      body: JSON.stringify({
+        ...editState,
+        minimumPayment:
+          LIABILITY_KINDS.has(editState.kind) && editState.minimumPayment
+            ? editState.minimumPayment
+            : undefined,
+        paymentDueDay:
+          LIABILITY_KINDS.has(editState.kind) && editState.paymentDueDay
+            ? Number(editState.paymentDueDay)
+            : null,
+        aprPercent:
+          LIABILITY_KINDS.has(editState.kind) && editState.aprPercent
+            ? Number(editState.aprPercent)
+            : null,
+      }),
     });
 
     setIsSavingEdit(false);
@@ -194,7 +242,12 @@ export default function AccountsPage() {
           <input name="institutionName" placeholder="Bank name" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <select name="kind" className="rounded-xl border border-border bg-surface px-3 py-2 text-sm">
+            <select
+              name="kind"
+              value={createKind}
+              onChange={(event) => setCreateKind(event.target.value)}
+              className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+            >
               <option value="depository">Depository</option>
               <option value="credit">Credit</option>
               <option value="investment">Investment</option>
@@ -204,6 +257,35 @@ export default function AccountsPage() {
 
             <input name="currency" defaultValue="USD" maxLength={3} className="rounded-xl border border-border bg-surface px-3 py-2 text-sm uppercase" />
           </div>
+
+          {LIABILITY_KINDS.has(createKind) ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <input
+                name="minimumPayment"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Minimum payment"
+                className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+              <input
+                name="paymentDueDay"
+                type="number"
+                min="1"
+                max="28"
+                placeholder="Due day (1-28)"
+                className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+              <input
+                name="aprPercent"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="APR %"
+                className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+            </div>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <input name="openingBalance" defaultValue="0" type="number" step="0.01" className="rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
@@ -274,6 +356,56 @@ export default function AccountsPage() {
                     <option value="shared">Shared</option>
                     <option value="restricted">Private</option>
                   </select>
+
+                  {LIABILITY_KINDS.has(editState.kind) ? (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <input
+                        value={editState.minimumPayment}
+                        onChange={(event) =>
+                          setEditState((previous) =>
+                            previous
+                              ? { ...previous, minimumPayment: event.target.value }
+                              : previous,
+                          )
+                        }
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Minimum payment"
+                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                      />
+                      <input
+                        value={editState.paymentDueDay}
+                        onChange={(event) =>
+                          setEditState((previous) =>
+                            previous
+                              ? { ...previous, paymentDueDay: event.target.value }
+                              : previous,
+                          )
+                        }
+                        type="number"
+                        min="1"
+                        max="28"
+                        placeholder="Due day"
+                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                      />
+                      <input
+                        value={editState.aprPercent}
+                        onChange={(event) =>
+                          setEditState((previous) =>
+                            previous
+                              ? { ...previous, aprPercent: event.target.value }
+                              : previous,
+                          )
+                        }
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="APR %"
+                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                      />
+                    </div>
+                  ) : null}
 
                   <div className="mt-2 flex gap-2">
                     <button

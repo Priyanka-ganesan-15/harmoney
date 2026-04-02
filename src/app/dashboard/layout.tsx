@@ -8,6 +8,7 @@ const navItems: Array<{ href: Route; label: string }> = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/accounts", label: "Accounts" },
   { href: "/dashboard/transactions", label: "Transactions" },
+  { href: "/dashboard/payments" as Route, label: "Payments" },
   { href: "/dashboard/budgets" as Route, label: "Budgets" },
   { href: "/dashboard/settings", label: "Settings" },
 ];

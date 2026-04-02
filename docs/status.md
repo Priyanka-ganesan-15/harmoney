@@ -4,7 +4,7 @@ Last updated: 2026-04-02
 
 ## Current Milestone
 
-Protected dashboard shell and first finance vertical slice.
+Two-layer dashboard framework rollout (Total Wealth + Monthly Activity).
 
 ## Completed In This Cycle
 
@@ -65,16 +65,36 @@ Protected dashboard shell and first finance vertical slice.
 - Enhanced carry-over logic to include active recurring expenses in next-month budget seeding.
 - Added Playwright coverage for recurring expense creation and disabled-recurring filtering (2/2 tests passing).
 - Verified complete recurring expense cycle with `pnpm lint`, `pnpm typecheck`, and `pnpm test:e2e` (6/6 tests passing).
+- Started dashboard framework implementation with explicit two-layer separation:
+	- Added a dedicated **Total Wealth** section for net worth, assets, liabilities, and long-term asset buckets.
+	- Added a dedicated **Monthly Activity** section for month-to-date income, expenses, net cash flow, and operational liquidity.
+	- Integrated savings-rate and monthly trend indicators to reinforce short-term operating context.
+- Kept existing analytics widgets (spending trends, budget health) integrated and validated after layout refactor.
+- Verified this dashboard framework increment with `pnpm typecheck` and `pnpm test:e2e tests/e2e/dashboard-widgets.spec.ts`.
+- Implemented Goals MVP foundation:
+	- Added Goal model and goals API routes for create/list/update/archive.
+	- Added goals progress panel into dashboard framework.
+	- Added Playwright coverage for goals API lifecycle and dashboard load after goal creation.
+	- Verified with `pnpm typecheck` and `pnpm test:e2e tests/e2e/goals.spec.ts`.
+- Implemented dashboard systems layer for additional widgets:
+	- Added analytics APIs for debt snapshot, credit activity, partner contributions, and alerts.
+	- Wired dashboard widgets for debt, credit, couples view, upcoming items, and alerts.
+	- Added Playwright coverage for analytics systems endpoint contracts.
+	- Resolved middleware export issue to stabilize local Next.js webServer startup in tests.
+	- Verified with `pnpm typecheck`, `pnpm test:e2e tests/e2e/analytics-systems.spec.ts`, and `pnpm test:e2e tests/e2e/dashboard-widgets.spec.ts`.
 
 ## In Progress
 
-- None. All Phase 1 features complete and validated.
+- Dashboard framework continuation:
+	- Monthly credit activity refinement (statement vs payment schedule accuracy)
+	- Couples attribution evolution (support joint/shared split mode beyond createdByUserId)
 
 ## Next Steps
 
-1. Add category hierarchy and reporting rollups.
-2. Enhance carry-over logic to support user-preferred savings fund/goal assignment (future phase).
-3. Month-end automation details and notifications.
+1. Add debt due-date/minimum metadata to account/debt model to replace current heuristic estimates.
+2. Add partner contribution breakdown with explicit joint/shared split support.
+3. Enhance alerts with unusual-spike baseline comparisons and actionable deep links.
+4. Add trends/momentum widgets for net worth, spending, and savings.
 
 ## Open Decisions
 

@@ -16,6 +16,9 @@ const createAccountSchema = z.object({
   kind: z.enum(["depository", "credit", "investment", "cash", "loan"]),
   currency: z.string().length(3).transform((value) => value.toUpperCase()),
   openingBalance: z.union([z.string(), z.number()]),
+  minimumPayment: z.union([z.string(), z.number()]).optional(),
+  paymentDueDay: z.number().int().min(1).max(28).optional(),
+  aprPercent: z.number().min(0).optional(),
   accessScope: z.enum(["shared", "restricted"]).default("shared"),
 });
 
@@ -70,6 +73,9 @@ export async function GET() {
         currency: account.currency,
         accessScope: account.accessScope,
         openingBalanceMinor: account.openingBalanceMinor,
+        minimumPaymentMinor: account.minimumPaymentMinor ?? null,
+        paymentDueDay: account.paymentDueDay ?? null,
+        aprPercent: account.aprPercent ?? null,
         currentBalanceMinor: balanceMap.get(account._id.toString()) ?? 0,
       })),
     });
@@ -102,6 +108,14 @@ export async function POST(request: Request) {
 
     assertOpeningBalanceInvariant(parsed.kind, openingBalanceMinor);
 
+    const isDebtAccount = parsed.kind === "credit" || parsed.kind === "loan";
+    const minimumPaymentMinor =
+      isDebtAccount && parsed.minimumPayment !== undefined
+        ? toMinorUnits(Number(parsed.minimumPayment), parsed.currency)
+        : null;
+    const paymentDueDay = isDebtAccount ? parsed.paymentDueDay ?? null : null;
+    const aprPercent = isDebtAccount ? parsed.aprPercent ?? null : null;
+
     const account = await Account.create({
       householdId: context.householdId,
       name: parsed.name.trim(),
@@ -109,6 +123,9 @@ export async function POST(request: Request) {
       kind: parsed.kind,
       currency: parsed.currency,
       openingBalanceMinor,
+      minimumPaymentMinor,
+      paymentDueDay,
+      aprPercent,
       accessScope: parsed.accessScope,
       visibleToMemberIds:
         parsed.accessScope === "restricted" ? [context.userId] : [],

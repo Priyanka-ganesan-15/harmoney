@@ -34,6 +34,22 @@ const accountSchema = new Schema(
       required: true,
       default: 0,
     },
+    minimumPaymentMinor: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    paymentDueDay: {
+      type: Number,
+      default: null,
+      min: 1,
+      max: 28,
+    },
+    aprPercent: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     accessScope: {
       type: String,
       enum: ["shared", "restricted"],

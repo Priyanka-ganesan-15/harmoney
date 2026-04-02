@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { toMinorUnits } from "@/lib/money";
 import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions";
 import { Account } from "@/server/models/account";
 import { AuditEvent } from "@/server/models/audit-event";
@@ -9,6 +10,9 @@ const updateAccountSchema = z.object({
   name: z.string().min(2).max(80),
   institutionName: z.string().max(120).optional().default(""),
   accessScope: z.enum(["shared", "restricted"]),
+  minimumPayment: z.union([z.string(), z.number()]).optional(),
+  paymentDueDay: z.number().int().min(1).max(28).nullable().optional(),
+  aprPercent: z.number().min(0).nullable().optional(),
 });
 
 type Params = {
@@ -51,11 +55,28 @@ export async function PATCH(request: Request, { params }: Params) {
     }
 
     const oldAccessScope = account.accessScope;
+    const oldMinimumPaymentMinor = account.minimumPaymentMinor ?? null;
+    const oldPaymentDueDay = account.paymentDueDay ?? null;
+    const oldAprPercent = account.aprPercent ?? null;
+    const isDebtAccount = account.kind === "credit" || account.kind === "loan";
 
     account.name = parsed.name.trim();
     account.institutionName = parsed.institutionName.trim();
     account.accessScope = parsed.accessScope;
     account.visibleToMemberIds = parsed.accessScope === "restricted" ? [context.userId] : [];
+
+    if (isDebtAccount) {
+      account.minimumPaymentMinor =
+        parsed.minimumPayment !== undefined
+          ? toMinorUnits(Number(parsed.minimumPayment), account.currency)
+          : null;
+      account.paymentDueDay = parsed.paymentDueDay ?? null;
+      account.aprPercent = parsed.aprPercent ?? null;
+    } else {
+      account.minimumPaymentMinor = null;
+      account.paymentDueDay = null;
+      account.aprPercent = null;
+    }
 
     await account.save();
 
@@ -68,6 +89,12 @@ export async function PATCH(request: Request, { params }: Params) {
       metadata: {
         previousAccessScope: oldAccessScope,
         accessScope: parsed.accessScope,
+        previousMinimumPaymentMinor: oldMinimumPaymentMinor,
+        minimumPaymentMinor: account.minimumPaymentMinor ?? null,
+        previousPaymentDueDay: oldPaymentDueDay,
+        paymentDueDay: account.paymentDueDay ?? null,
+        previousAprPercent: oldAprPercent,
+        aprPercent: account.aprPercent ?? null,
       },
     });
 
