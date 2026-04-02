@@ -1,5 +1,17 @@
 import { Schema, model, models, type InferSchemaType } from "mongoose";
 
+const ACCOUNT_KIND_VALUES = [
+  "depository",
+  "credit",
+  "investment",
+  "retirement",
+  "cash",
+  "loan",
+  "precious_metals",
+  "real_estate",
+  "other",
+] as const;
+
 const accountSchema = new Schema(
   {
     householdId: {
@@ -20,17 +32,7 @@ const accountSchema = new Schema(
     },
     kind: {
       type: String,
-      enum: [
-        "depository",
-        "credit",
-        "investment",
-        "retirement",
-        "cash",
-        "loan",
-        "precious_metals",
-        "real_estate",
-        "other",
-      ],
+      enum: ACCOUNT_KIND_VALUES,
       required: true,
     },
     currency: {
@@ -91,4 +93,24 @@ accountSchema.index({ householdId: 1, archivedAt: 1 });
 
 export type AccountDocument = InferSchemaType<typeof accountSchema>;
 
-export const Account = models.Account || model("Account", accountSchema);
+const existingAccountModel = models.Account;
+
+if (existingAccountModel) {
+  const kindPath = existingAccountModel.schema.path("kind") as
+    | ({ enumValues?: string[]; options?: { enum?: string[] } } & Record<string, unknown>)
+    | undefined;
+
+  if (kindPath) {
+    const currentValues = new Set(kindPath.enumValues ?? []);
+    const hasAllKinds = ACCOUNT_KIND_VALUES.every((value) => currentValues.has(value));
+
+    if (!hasAllKinds) {
+      kindPath.enumValues = [...ACCOUNT_KIND_VALUES];
+      if (kindPath.options) {
+        kindPath.options.enum = [...ACCOUNT_KIND_VALUES];
+      }
+    }
+  }
+}
+
+export const Account = existingAccountModel || model("Account", accountSchema);
