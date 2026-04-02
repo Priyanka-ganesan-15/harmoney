@@ -1,0 +1,262 @@
+import { expect, test } from "@playwright/test";
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+test("closing a month locks budget line writes until reopened", async ({ page }) => {
+  const uniqueId = Date.now();
+  const email = `period-owner-${uniqueId}@example.com`;
+  const password = "supersecure123";
+  const month = currentMonthKey();
+
+  const registerResponse = await page.request.post("/api/register", {
+    data: {
+      name: "Period Owner",
+      householdName: `Period Household ${uniqueId}`,
+      email,
+      password,
+    },
+  });
+
+  expect(registerResponse.ok()).toBeTruthy();
+
+  const csrfResponse = await page.request.get("/api/auth/csrf");
+  const csrf = (await csrfResponse.json()) as { csrfToken: string };
+
+  const signInResponse = await page.request.post("/api/auth/callback/credentials", {
+    form: {
+      csrfToken: csrf.csrfToken,
+      email,
+      password,
+      callbackUrl: "http://127.0.0.1:3000/dashboard",
+      json: "true",
+    },
+  });
+
+  expect(signInResponse.ok()).toBeTruthy();
+
+  const createCategoryResponse = await page.request.post("/api/categories", {
+    data: { name: `Groceries ${uniqueId}`, kind: "expense" },
+  });
+
+  expect(createCategoryResponse.ok()).toBeTruthy();
+  const categoryData = (await createCategoryResponse.json()) as {
+    category: { id: string };
+  };
+
+  const closeResponse = await page.request.patch("/api/budgets/period", {
+    data: { month, status: "closed" },
+  });
+
+  expect(closeResponse.ok()).toBeTruthy();
+
+  const upsertWhileClosed = await page.request.post("/api/budgets", {
+    data: {
+      month,
+      categoryId: categoryData.category.id,
+      amount: "250",
+      currency: "USD",
+    },
+  });
+
+  expect(upsertWhileClosed.status()).toBe(409);
+
+  const reopenResponse = await page.request.patch("/api/budgets/period", {
+    data: { month, status: "open" },
+  });
+
+  expect(reopenResponse.ok()).toBeTruthy();
+
+  const upsertAfterReopen = await page.request.post("/api/budgets", {
+    data: {
+      month,
+      categoryId: categoryData.category.id,
+      amount: "250",
+      currency: "USD",
+    },
+  });
+
+  expect(upsertAfterReopen.ok()).toBeTruthy();
+});
+
+test("only owners can close or reopen periods", async ({ page }) => {
+  const uniqueId = Date.now();
+  const ownerEmail = `owner-period-${uniqueId}@example.com`;
+  const partnerEmail = `partner-period-${uniqueId}@example.com`;
+  const password = "supersecure123";
+  const month = currentMonthKey();
+
+  const registerOwnerResponse = await page.request.post("/api/register", {
+    data: {
+      name: "Owner",
+      householdName: `Owner Household ${uniqueId}`,
+      email: ownerEmail,
+      password,
+    },
+  });
+
+  expect(registerOwnerResponse.ok()).toBeTruthy();
+
+  const ownerCsrfResponse = await page.request.get("/api/auth/csrf");
+  const ownerCsrf = (await ownerCsrfResponse.json()) as { csrfToken: string };
+
+  const ownerSignInResponse = await page.request.post(
+    "/api/auth/callback/credentials",
+    {
+      form: {
+        csrfToken: ownerCsrf.csrfToken,
+        email: ownerEmail,
+        password,
+        callbackUrl: "http://127.0.0.1:3000/dashboard",
+        json: "true",
+      },
+    },
+  );
+
+  expect(ownerSignInResponse.ok()).toBeTruthy();
+
+  const createInviteResponse = await page.request.post("/api/invites", {
+    data: { email: partnerEmail },
+  });
+
+  expect(createInviteResponse.ok()).toBeTruthy();
+  const inviteData = (await createInviteResponse.json()) as { inviteUrl: string };
+  const inviteToken = inviteData.inviteUrl.split("/").pop();
+
+  expect(inviteToken).toBeTruthy();
+
+  const acceptInviteResponse = await page.request.post(
+    `/api/invites/${inviteToken}/accept`,
+    {
+      data: {
+        name: "Partner",
+        email: partnerEmail,
+        password,
+      },
+    },
+  );
+
+  expect(acceptInviteResponse.ok()).toBeTruthy();
+
+  const partnerCsrfResponse = await page.request.get("/api/auth/csrf");
+  const partnerCsrf = (await partnerCsrfResponse.json()) as { csrfToken: string };
+
+  const partnerSignInResponse = await page.request.post(
+    "/api/auth/callback/credentials",
+    {
+      form: {
+        csrfToken: partnerCsrf.csrfToken,
+        email: partnerEmail,
+        password,
+        callbackUrl: "http://127.0.0.1:3000/dashboard",
+        json: "true",
+      },
+    },
+  );
+
+  expect(partnerSignInResponse.ok()).toBeTruthy();
+
+  const closeByPartnerResponse = await page.request.patch("/api/budgets/period", {
+    data: { month, status: "closed" },
+  });
+
+  expect(closeByPartnerResponse.status()).toBe(403);
+});
+
+test("closing a month locks transaction creates and deletes until reopened", async ({ page }) => {
+  const uniqueId = Date.now();
+  const email = `period-tx-${uniqueId}@example.com`;
+  const password = "supersecure123";
+  const month = currentMonthKey();
+
+  const registerResponse = await page.request.post("/api/register", {
+    data: {
+      name: "Period Tx Owner",
+      householdName: `Period Tx Household ${uniqueId}`,
+      email,
+      password,
+    },
+  });
+
+  expect(registerResponse.ok()).toBeTruthy();
+
+  const csrfResponse = await page.request.get("/api/auth/csrf");
+  const csrf = (await csrfResponse.json()) as { csrfToken: string };
+
+  const signInResponse = await page.request.post("/api/auth/callback/credentials", {
+    form: {
+      csrfToken: csrf.csrfToken,
+      email,
+      password,
+      callbackUrl: "http://127.0.0.1:3000/dashboard",
+      json: "true",
+    },
+  });
+
+  expect(signInResponse.ok()).toBeTruthy();
+
+  const createAccountResponse = await page.request.post("/api/accounts", {
+    data: {
+      name: `Checking ${uniqueId}`,
+      institutionName: "Bank",
+      kind: "depository",
+      currency: "USD",
+      openingBalance: "1000",
+      accessScope: "shared",
+    },
+  });
+
+  expect(createAccountResponse.ok()).toBeTruthy();
+  const accountData = (await createAccountResponse.json()) as { accountId: string };
+
+  const createExpenseResponse = await page.request.post("/api/ledger-entries", {
+    data: {
+      accountId: accountData.accountId,
+      type: "expense",
+      amount: "25",
+      description: "Before close",
+      occurredAt: new Date().toISOString(),
+    },
+  });
+
+  expect(createExpenseResponse.ok()).toBeTruthy();
+  const createdEntry = (await createExpenseResponse.json()) as { entryId: string };
+
+  const closeResponse = await page.request.patch("/api/budgets/period", {
+    data: { month, status: "closed" },
+  });
+
+  expect(closeResponse.ok()).toBeTruthy();
+
+  const createWhileClosed = await page.request.post("/api/ledger-entries", {
+    data: {
+      accountId: accountData.accountId,
+      type: "expense",
+      amount: "10",
+      description: "Blocked",
+      occurredAt: new Date().toISOString(),
+    },
+  });
+
+  expect(createWhileClosed.status()).toBe(409);
+
+  const deleteWhileClosed = await page.request.delete(
+    `/api/ledger-entries/${createdEntry.entryId}`,
+  );
+
+  expect(deleteWhileClosed.status()).toBe(409);
+
+  const reopenResponse = await page.request.patch("/api/budgets/period", {
+    data: { month, status: "open" },
+  });
+
+  expect(reopenResponse.ok()).toBeTruthy();
+
+  const deleteAfterReopen = await page.request.delete(
+    `/api/ledger-entries/${createdEntry.entryId}`,
+  );
+
+  expect(deleteAfterReopen.ok()).toBeTruthy();
+});
