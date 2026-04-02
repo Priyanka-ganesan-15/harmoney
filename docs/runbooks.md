@@ -43,8 +43,8 @@ MONGODB_DB_NAME=harmoney
 4. Keep URL values for local dev:
 
 ```env
-NEXTAUTH_URL=http://localhost:3000
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXTAUTH_URL=http://127.0.0.1:3000
+NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 ```
 
 5. If you are not setting up local Ollama yet, keep placeholder values for now:
@@ -228,10 +228,14 @@ Expected result:
 8. Update the budget line again.
 9. Confirm write succeeds.
 10. Sign in as partner (non-owner) and attempt close/reopen actions.
+11. While month is closed, attempt to create, edit, and delete a transaction in `/dashboard/transactions`.
+12. Reopen the month and confirm those transaction mutations succeed again.
 
 Expected result:
 - Closing a month finalizes a snapshot and locks budget writes for that month.
+- Closing a month also locks transaction create/edit/delete for that month.
 - Reopening unlocks budget writes.
+- Reopening unlocks transaction mutations.
 - Only owners can close or reopen periods.
 
 ## Bug Report Template

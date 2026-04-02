@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { formatMoney } from "@/lib/money";
 
 type AccountOption = {
@@ -27,6 +27,26 @@ type CategoryOption = {
   kind: "expense" | "income";
 };
 
+type BudgetStatusResponse = {
+  status?: "open" | "closed";
+};
+
+function toMonthKey(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map((value) => Number(value));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
 export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
@@ -43,9 +63,34 @@ export default function TransactionsPage() {
     description: string;
     categoryId: string;
   } | null>(null);
+  const [closedMonths, setClosedMonths] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  async function loadData() {
+  const currentMonthKey = toMonthKey(new Date());
+  const isCurrentMonthClosed = Boolean(closedMonths[currentMonthKey]);
+  const showBudgetShortcut =
+    isCurrentMonthClosed ||
+    (errorMessage?.includes("Reopen the month in Budgets") ?? false);
+
+  const loadMonthStatusMap = useCallback(async (monthKeys: string[]) => {
+    const uniqueMonthKeys = [...new Set(monthKeys)];
+    const responses = await Promise.all(
+      uniqueMonthKeys.map(async (monthKey) => {
+        const response = await fetch(`/api/budgets?month=${monthKey}`);
+
+        if (!response.ok) {
+          return [monthKey, false] as const;
+        }
+
+        const data = (await response.json()) as BudgetStatusResponse;
+        return [monthKey, data.status === "closed"] as const;
+      }),
+    );
+
+    return Object.fromEntries(responses);
+  }, []);
+
+  const loadData = useCallback(async () => {
     const [accountsRes, entriesRes, categoriesRes] = await Promise.all([
       fetch("/api/accounts"),
       fetch("/api/ledger-entries"),
@@ -62,43 +107,27 @@ export default function TransactionsPage() {
     const categoriesData = (await categoriesRes.json()) as {
       categories: CategoryOption[];
     };
+    const monthStatusMap = await loadMonthStatusMap([
+      currentMonthKey,
+      ...entriesData.entries.map((entry) => toMonthKey(entry.occurredAt)),
+    ]);
 
     setAccounts(accountsData.accounts);
     setEntries(entriesData.entries);
     setCategories(categoriesData.categories);
-  }
+    setClosedMonths(monthStatusMap);
+  }, [currentMonthKey, loadMonthStatusMap]);
 
   useEffect(() => {
     let active = true;
 
     async function hydrateData() {
-      const [accountsRes, entriesRes, categoriesRes] = await Promise.all([
-        fetch("/api/accounts"),
-        fetch("/api/ledger-entries"),
-        fetch("/api/categories"),
-      ]);
+      await loadData();
 
       if (!active) {
         return;
       }
 
-      if (!accountsRes.ok || !entriesRes.ok || !categoriesRes.ok) {
-        setErrorMessage("Unable to load transactions.");
-        setIsLoading(false);
-        return;
-      }
-
-      const accountsData = (await accountsRes.json()) as {
-        accounts: AccountOption[];
-      };
-      const entriesData = (await entriesRes.json()) as { entries: Entry[] };
-      const categoriesData = (await categoriesRes.json()) as {
-        categories: CategoryOption[];
-      };
-
-      setAccounts(accountsData.accounts);
-      setEntries(entriesData.entries);
-      setCategories(categoriesData.categories);
       setIsLoading(false);
     }
 
@@ -107,11 +136,19 @@ export default function TransactionsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadData]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
+
+    if (isCurrentMonthClosed) {
+      setErrorMessage(
+        `Transactions for ${formatMonthLabel(currentMonthKey)} are locked. Reopen the month in Budgets to continue.`,
+      );
+      return;
+    }
+
     setIsSubmittingManual(true);
 
     const form = event.currentTarget;
@@ -138,6 +175,12 @@ export default function TransactionsPage() {
       const data = (await response.json().catch(() => null)) as
         | { message?: string }
         | null;
+      if (response.status === 409) {
+        setErrorMessage(
+          `Transactions for ${formatMonthLabel(currentMonthKey)} are locked. Reopen the month in Budgets to continue.`,
+        );
+        return;
+      }
       setErrorMessage(data?.message ?? "Unable to create transaction.");
       return;
     }
@@ -149,6 +192,14 @@ export default function TransactionsPage() {
   async function handleTransferSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage(null);
+
+    if (isCurrentMonthClosed) {
+      setErrorMessage(
+        `Transfers for ${formatMonthLabel(currentMonthKey)} are locked. Reopen the month in Budgets to continue.`,
+      );
+      return;
+    }
+
     setIsSubmittingTransfer(true);
 
     const form = event.currentTarget;
@@ -174,6 +225,12 @@ export default function TransactionsPage() {
       const data = (await response.json().catch(() => null)) as
         | { message?: string }
         | null;
+      if (response.status === 409) {
+        setErrorMessage(
+          `Transfers for ${formatMonthLabel(currentMonthKey)} are locked. Reopen the month in Budgets to continue.`,
+        );
+        return;
+      }
       setErrorMessage(data?.message ?? "Unable to create transfer.");
       return;
     }
@@ -184,6 +241,14 @@ export default function TransactionsPage() {
 
   function beginEdit(entry: Entry) {
     if (entry.entryType !== "income" && entry.entryType !== "expense") {
+      return;
+    }
+
+    const monthKey = toMonthKey(entry.occurredAt);
+    if (closedMonths[monthKey]) {
+      setErrorMessage(
+        `This transaction is in ${formatMonthLabel(monthKey)}, which is closed. Reopen the month in Budgets to edit it.`,
+      );
       return;
     }
 
@@ -204,6 +269,20 @@ export default function TransactionsPage() {
 
   async function saveEdit(entryId: string) {
     if (!editForm) {
+      return;
+    }
+
+    const targetEntry = entries.find((entry) => entry.id === entryId);
+    if (!targetEntry) {
+      setErrorMessage("Transaction not found.");
+      return;
+    }
+
+    const monthKey = toMonthKey(targetEntry.occurredAt);
+    if (closedMonths[monthKey]) {
+      setErrorMessage(
+        `This transaction is in ${formatMonthLabel(monthKey)}, which is closed. Reopen the month in Budgets to edit it.`,
+      );
       return;
     }
 
@@ -228,6 +307,12 @@ export default function TransactionsPage() {
       const data = (await response.json().catch(() => null)) as
         | { message?: string }
         | null;
+      if (response.status === 409) {
+        setErrorMessage(
+          `This transaction is in ${formatMonthLabel(monthKey)}, which is closed. Reopen the month in Budgets to edit it.`,
+        );
+        return;
+      }
       setErrorMessage(data?.message ?? "Unable to update transaction.");
       return;
     }
@@ -245,6 +330,20 @@ export default function TransactionsPage() {
       return;
     }
 
+    const targetEntry = entries.find((entry) => entry.id === entryId);
+    if (!targetEntry) {
+      setErrorMessage("Transaction not found.");
+      return;
+    }
+
+    const monthKey = toMonthKey(targetEntry.occurredAt);
+    if (closedMonths[monthKey]) {
+      setErrorMessage(
+        `This transaction is in ${formatMonthLabel(monthKey)}, which is closed. Reopen the month in Budgets to delete it.`,
+      );
+      return;
+    }
+
     setErrorMessage(null);
     setIsDeletingEntryId(entryId);
 
@@ -258,6 +357,12 @@ export default function TransactionsPage() {
       const data = (await response.json().catch(() => null)) as
         | { message?: string }
         | null;
+      if (response.status === 409) {
+        setErrorMessage(
+          `This transaction is in ${formatMonthLabel(monthKey)}, which is closed. Reopen the month in Budgets to delete it.`,
+        );
+        return;
+      }
       setErrorMessage(data?.message ?? "Unable to delete transaction.");
       return;
     }
@@ -274,6 +379,11 @@ export default function TransactionsPage() {
       <section className="grid gap-5">
         <section className="panel border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Add transaction</p>
+          <p className="mt-2 text-xs text-muted">
+            {isCurrentMonthClosed
+              ? `${formatMonthLabel(currentMonthKey)} is closed. Reopen the month in Budgets to add transactions.`
+              : `${formatMonthLabel(currentMonthKey)} is open for transaction changes.`}
+          </p>
 
           <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
             <select required name="accountId" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
@@ -307,7 +417,7 @@ export default function TransactionsPage() {
 
             <input name="description" placeholder="Description" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
 
-            <button type="submit" disabled={isSubmittingManual} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            <button type="submit" disabled={isSubmittingManual || isCurrentMonthClosed} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
               {isSubmittingManual ? "Saving..." : "Add transaction"}
             </button>
           </form>
@@ -315,6 +425,9 @@ export default function TransactionsPage() {
 
         <section className="panel border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Transfer between accounts</p>
+          <p className="mt-2 text-xs text-muted">
+            Transfers follow month close status for the transaction date.
+          </p>
 
           <form className="mt-4 space-y-3" onSubmit={handleTransferSubmit}>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -354,7 +467,7 @@ export default function TransactionsPage() {
 
             <button
               type="submit"
-              disabled={isSubmittingTransfer}
+              disabled={isSubmittingTransfer || isCurrentMonthClosed}
               className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
               {isSubmittingTransfer ? "Transferring..." : "Transfer"}
@@ -363,6 +476,14 @@ export default function TransactionsPage() {
         </section>
 
         {errorMessage ? <p className="text-sm text-warning">{errorMessage}</p> : null}
+        {showBudgetShortcut ? (
+          <div className="rounded-xl border border-border bg-surface px-3 py-2 text-xs text-muted">
+            Need to reopen the period first?
+            <a href="/dashboard/budgets" className="ml-1 font-semibold text-accent underline">
+              Go to Budgets
+            </a>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel border-border rounded-3xl border p-6">
@@ -375,6 +496,11 @@ export default function TransactionsPage() {
           ) : null}
           {entries.map((entry) => (
             <li key={entry.id} className="rounded-xl border border-border bg-surface px-3 py-3">
+              {closedMonths[toMonthKey(entry.occurredAt)] ? (
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-warning">
+                  Closed month: {formatMonthLabel(toMonthKey(entry.occurredAt))}
+                </p>
+              ) : null}
               {editingEntryId === entry.id && editForm ? (
                 <div className="space-y-2">
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -445,7 +571,7 @@ export default function TransactionsPage() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      disabled={isSavingEdit}
+                      disabled={isSavingEdit || closedMonths[toMonthKey(entry.occurredAt)]}
                       onClick={() => void saveEdit(entry.id)}
                       className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                     >
@@ -471,8 +597,9 @@ export default function TransactionsPage() {
                     {entry.entryType === "income" || entry.entryType === "expense" ? (
                       <button
                         type="button"
+                        disabled={closedMonths[toMonthKey(entry.occurredAt)]}
                         onClick={() => beginEdit(entry)}
-                        className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                        className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-60"
                       >
                         Edit
                       </button>
@@ -480,7 +607,7 @@ export default function TransactionsPage() {
                     {entry.entryType !== "opening_balance" ? (
                       <button
                         type="button"
-                        disabled={isDeletingEntryId === entry.id}
+                        disabled={isDeletingEntryId === entry.id || closedMonths[toMonthKey(entry.occurredAt)]}
                         onClick={() => void deleteEntry(entry.id)}
                         className="rounded-lg border border-warning/40 px-3 py-1.5 text-xs font-semibold text-warning disabled:opacity-60"
                       >

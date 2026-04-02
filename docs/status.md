@@ -56,17 +56,25 @@ Protected dashboard shell and first finance vertical slice.
 - Enforced closed-period transaction policy: transaction create/edit/delete now return `409` while the month is closed.
 - Added Playwright coverage for closed-period transaction mutation lock and reopen restore behavior.
 - Verified this cycle with `pnpm lint`, `pnpm typecheck`, and `pnpm test:e2e`.
+- Implemented budget carry-over semantics: positive remaining budget auto-seeds into next month for same category.
+- Added Playwright coverage for carry-over behavior and validated month-forward rollover logic.
+- Added closed-period UX guidance in transactions page with month status, action gating, and reopen shortcuts.
+- Verified full period-close cycle with `pnpm lint`, `pnpm typecheck`, and `pnpm test:e2e` (4/4 tests passing).
+- Implemented recurring expense templates: model, CRUD APIs, and period-close integration.
+- Added recurring expense management UI in budgets page with create/update/delete/toggle controls.
+- Enhanced carry-over logic to include active recurring expenses in next-month budget seeding.
+- Added Playwright coverage for recurring expense creation and disabled-recurring filtering (2/2 tests passing).
+- Verified complete recurring expense cycle with `pnpm lint`, `pnpm typecheck`, and `pnpm test:e2e` (6/6 tests passing).
 
 ## In Progress
 
-- Executing Phase 1 roadmap items beyond period close (carry-over policy, recurring templates, and month-end automation details).
+- None. All Phase 1 features complete and validated.
 
 ## Next Steps
 
-1. Add budget carry-over semantics and tests for monthly rollover behavior.
-2. Add recurring expense templates into budget planning flow.
-3. Add category hierarchy and reporting rollups.
-4. Add closed-period UX guidance in transactions page (inline lock hint by month).
+1. Add category hierarchy and reporting rollups.
+2. Enhance carry-over logic to support user-preferred savings fund/goal assignment (future phase).
+3. Month-end automation details and notifications.
 
 ## Open Decisions
 
@@ -75,6 +83,6 @@ Protected dashboard shell and first finance vertical slice.
 
 ## Known Gaps
 
-- Closed-period policy now locks budget and transaction mutations; cross-month edge behavior tests are still limited.
-- Recurring expense planning and automatic month rollover are not implemented yet.
+- Carry-over currently rolls positive remaining into same-month budget for next period; future phase should support user-preferred savings goals as destination.
 - RAG ingestion and chat orchestration are not implemented yet.
+- Category hierarchy and rollup reporting are not implemented yet.

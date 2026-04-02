@@ -17,6 +17,16 @@ type BudgetLine = {
   remainingMinor: number;
 };
 
+type RecurringExpense = {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  amountMinor: number;
+  frequency: "monthly" | "weekly" | "biweekly" | "quarterly" | "annually";
+  currency: string;
+  isActive: boolean;
+};
+
 type BudgetResponse = {
   month: string;
   currency: string;
@@ -30,6 +40,10 @@ type BudgetResponse = {
   };
 };
 
+type RecurringResponse = {
+  recurring: RecurringExpense[];
+};
+
 function defaultMonth() {
   const now = new Date();
   const year = now.getUTCFullYear();
@@ -41,9 +55,12 @@ export default function BudgetsPage() {
   const [month, setMonth] = useState(defaultMonth());
   const [categories, setCategories] = useState<Category[]>([]);
   const [budget, setBudget] = useState<BudgetResponse | null>(null);
+  const [recurring, setRecurring] = useState<RecurringExpense[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [isSavingLine, setIsSavingLine] = useState(false);
+  const [isSavingRecurring, setIsSavingRecurring] = useState(false);
+  const [isDeletingRecurring, setIsDeletingRecurring] = useState<string | null>(null);
   const [isUpdatingPeriodStatus, setIsUpdatingPeriodStatus] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -53,12 +70,13 @@ export default function BudgetsPage() {
   );
 
   async function loadData(targetMonth: string) {
-    const [categoriesRes, budgetsRes] = await Promise.all([
+    const [categoriesRes, budgetsRes, recurringRes] = await Promise.all([
       fetch("/api/categories"),
       fetch(`/api/budgets?month=${targetMonth}`),
+      fetch("/api/budgets/recurring?activeOnly=false"),
     ]);
 
-    if (!categoriesRes.ok || !budgetsRes.ok) {
+    if (!categoriesRes.ok || !budgetsRes.ok || !recurringRes.ok) {
       setErrorMessage("Unable to load budget data.");
       setIsLoading(false);
       return;
@@ -66,9 +84,11 @@ export default function BudgetsPage() {
 
     const categoriesData = (await categoriesRes.json()) as { categories: Category[] };
     const budgetsData = (await budgetsRes.json()) as BudgetResponse;
+    const recurringData = (await recurringRes.json()) as RecurringResponse;
 
     setCategories(categoriesData.categories);
     setBudget(budgetsData);
+    setRecurring(recurringData.recurring);
     setIsLoading(false);
   }
 
@@ -180,6 +200,97 @@ export default function BudgetsPage() {
     await loadData(month);
   }
 
+  async function handleSaveRecurring(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(null);
+    setIsSavingRecurring(true);
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+
+    const payload = {
+      categoryId: String(formData.get("recurringCategoryId") ?? ""),
+      amount: String(formData.get("recurringAmount") ?? "0"),
+      frequency: String(formData.get("frequency") ?? "monthly"),
+      currency: "USD",
+    };
+
+    const response = await fetch("/api/budgets/recurring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    setIsSavingRecurring(false);
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      setErrorMessage(data?.message ?? "Unable to save recurring expense.");
+      return;
+    }
+
+    form.reset();
+    await loadData(month);
+  }
+
+  async function handleDeleteRecurring(recurringId: string) {
+    setErrorMessage(null);
+    setIsDeletingRecurring(recurringId);
+
+    const response = await fetch(`/api/budgets/recurring/${recurringId}`, {
+      method: "DELETE",
+    });
+
+    setIsDeletingRecurring(null);
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      setErrorMessage(data?.message ?? "Unable to delete recurring expense.");
+      return;
+    }
+
+    await loadData(month);
+  }
+
+  async function handleToggleRecurring(
+    recurringId: string,
+    currentRecurring: RecurringExpense,
+  ) {
+    setErrorMessage(null);
+    setIsSavingRecurring(true);
+
+    const payload = {
+      id: recurringId,
+      categoryId: currentRecurring.categoryId,
+      amount: currentRecurring.amountMinor / 100,
+      frequency: currentRecurring.frequency,
+      currency: currentRecurring.currency,
+      isActive: !currentRecurring.isActive,
+    };
+
+    const response = await fetch("/api/budgets/recurring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    setIsSavingRecurring(false);
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      setErrorMessage(data?.message ?? "Unable to update recurring expense.");
+      return;
+    }
+
+    await loadData(month);
+  }
+
   return (
     <main className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
       <section className="grid gap-5">
@@ -284,6 +395,100 @@ export default function BudgetsPage() {
               {isSavingLine ? "Saving..." : "Save budget line"}
             </button>
           </form>
+        </section>
+
+        <section className="panel border-border rounded-3xl border p-6">
+          <p className="text-sm uppercase tracking-[0.22em] text-muted">Recurring expenses</p>
+
+          <form className="mt-4 space-y-3" onSubmit={handleSaveRecurring}>
+            <select
+              required
+              name="recurringCategoryId"
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+            >
+              <option value="">Select category</option>
+              {expenseCategories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              required
+              name="recurringAmount"
+              type="number"
+              step="0.01"
+              placeholder="Amount"
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+            />
+
+            <select
+              name="frequency"
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annually">Annually</option>
+            </select>
+
+            <button
+              type="submit"
+              disabled={isSavingRecurring}
+              className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {isSavingRecurring ? "Saving..." : "Add recurring"}
+            </button>
+          </form>
+
+          <ul className="mt-4 space-y-2">
+            {recurring.length === 0 ? (
+              <li className="text-sm text-muted">No recurring expenses yet.</li>
+            ) : (
+              recurring.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-xl border border-border bg-surface px-3 py-3"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-foreground">{item.categoryName}</p>
+                      <p className="text-xs text-muted">
+                        {formatMoney(item.amountMinor / 100, item.currency)} {item.frequency}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={isSavingRecurring || isDeletingRecurring === item.id}
+                        onClick={() =>
+                          void handleToggleRecurring(item.id, item)
+                        }
+                        className="rounded-lg border border-border px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                      >
+                        {item.isActive ? "Disable" : "Enable"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isDeletingRecurring === item.id || isSavingRecurring}
+                        onClick={() => void handleDeleteRecurring(item.id)}
+                        className="rounded-lg border border-warning px-2 py-1 text-xs font-semibold text-warning disabled:opacity-60"
+                      >
+                        {isDeletingRecurring === item.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  </div>
+                  {!item.isActive && (
+                    <p className="mt-2 text-xs text-muted">
+                      Status: Disabled (will not seed into next month)
+                    </p>
+                  )}
+                </li>
+              ))
+            )}
+          </ul>
         </section>
 
         {errorMessage ? <p className="text-sm text-warning">{errorMessage}</p> : null}

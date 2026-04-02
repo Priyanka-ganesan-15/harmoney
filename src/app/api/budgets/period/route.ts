@@ -7,6 +7,7 @@ import { Category } from "@/server/models/category";
 import { HouseholdMembership } from "@/server/models/household-membership";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 import { MonthlySummary } from "@/server/models/monthly-summary";
+import { RecurringExpense } from "@/server/models/recurring-expense";
 
 const updatePeriodStatusSchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
@@ -18,6 +19,14 @@ function getMonthRange(month: string) {
   const start = new Date(Date.UTC(year, monthIndex - 1, 1));
   const end = new Date(Date.UTC(year, monthIndex, 1));
   return { start, end };
+}
+
+function getNextMonthKey(month: string) {
+  const [year, monthIndex] = month.split("-").map((value) => Number(value));
+  const next = new Date(Date.UTC(year, monthIndex, 1));
+  const nextYear = next.getUTCFullYear();
+  const nextMonth = String(next.getUTCMonth() + 1).padStart(2, "0");
+  return `${nextYear}-${nextMonth}`;
 }
 
 async function assertOwner(householdId: string, userId: string) {
@@ -130,6 +139,91 @@ export async function PATCH(request: Request) {
         },
         { upsert: true, new: true },
       );
+
+      const nextMonthKey = getNextMonthKey(parsed.month);
+
+      const existingNextMonthLines = await BudgetLine.find({
+        householdId: context.householdId,
+        monthKey: nextMonthKey,
+      })
+        .select({ categoryId: 1 })
+        .lean();
+
+      const existingNextMonthCategoryIds = new Set(
+        existingNextMonthLines.map((line) => line.categoryId.toString()),
+      );
+
+      // Carry over positive remaining budget
+      const carryOverLines = lines.filter(
+        (line) =>
+          line.remainingMinor > 0 &&
+          !existingNextMonthCategoryIds.has(line.categoryId.toString()),
+      );
+
+      // Load active recurring expenses to seed into next month
+      const recurringExpenses = await RecurringExpense.find({
+        householdId: context.householdId,
+        isActive: true,
+      })
+        .select({ categoryId: 1, amountMinor: 1 })
+        .lean();
+
+      const recurringLines = recurringExpenses
+        .filter(
+          (recurring) =>
+            !existingNextMonthCategoryIds.has(recurring.categoryId.toString()),
+        )
+        .map((recurring) => ({
+          categoryId: recurring.categoryId,
+          amountMinor: recurring.amountMinor,
+          source: "recurring",
+        }));
+
+      // Combine carry-over and recurring to determine which lines to write
+      const allNextMonthLines = [
+        ...carryOverLines.map((line) => ({
+          categoryId: line.categoryId,
+          amountMinor: line.remainingMinor,
+          source: "carryover",
+        })),
+        ...recurringLines,
+      ];
+
+      if (allNextMonthLines.length > 0) {
+        await BudgetPeriod.findOneAndUpdate(
+          { householdId: context.householdId, monthKey: nextMonthKey },
+          {
+            $setOnInsert: {
+              householdId: context.householdId,
+              monthKey: nextMonthKey,
+              currency: period?.currency ?? "USD",
+              status: "open",
+              createdByUserId: context.userId,
+            },
+          },
+          { upsert: true, new: true },
+        );
+
+        await BudgetLine.bulkWrite(
+          allNextMonthLines.map((line) => ({
+            updateOne: {
+              filter: {
+                householdId: context.householdId,
+                monthKey: nextMonthKey,
+                categoryId: line.categoryId,
+              },
+              update: {
+                $setOnInsert: {
+                  amountMinor: line.amountMinor,
+                  currency: period?.currency ?? "USD",
+                  createdByUserId: context.userId,
+                },
+              },
+              upsert: true,
+            },
+          })),
+        );
+      }
     }
 
     return NextResponse.json({ success: true, month: parsed.month, status: parsed.status });

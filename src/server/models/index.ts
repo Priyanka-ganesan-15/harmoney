@@ -8,6 +8,7 @@ export { HouseholdMembership } from "@/server/models/household-membership";
 export { Invite } from "@/server/models/invite";
 export { LedgerEntry } from "@/server/models/ledger-entry";
 export { MonthlySummary } from "@/server/models/monthly-summary";
+export { RecurringExpense } from "@/server/models/recurring-expense";
 export { TransactionGroup } from "@/server/models/transaction-group";
 export { User } from "@/server/models/user";
 
