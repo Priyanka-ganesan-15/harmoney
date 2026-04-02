@@ -28,10 +28,23 @@ function toMonthKey(date: Date) {
   return `${year}-${month}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const context = await requireHouseholdContext();
     const visibilityQuery = buildVisibilityQuery(context.userId);
+    const url = new URL(request.url);
+    const query = (url.searchParams.get("query") ?? "").trim();
+    const accountId = (url.searchParams.get("accountId") ?? "").trim();
+    const categoryId = (url.searchParams.get("categoryId") ?? "").trim();
+    const type = (url.searchParams.get("type") ?? "").trim();
+    const startDate = (url.searchParams.get("startDate") ?? "").trim();
+    const endDate = (url.searchParams.get("endDate") ?? "").trim();
+    const minAmount = (url.searchParams.get("minAmount") ?? "").trim();
+    const maxAmount = (url.searchParams.get("maxAmount") ?? "").trim();
+    const limitParam = Number(url.searchParams.get("limit") ?? "30");
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(Math.floor(limitParam), 1), 100)
+      : 30;
 
     const activeAccounts = await Account.find({
       householdId: context.householdId,
@@ -47,13 +60,78 @@ export async function GET() {
       return NextResponse.json({ entries: [] });
     }
 
-    const entries = await LedgerEntry.find({
+    const activeAccountIdSet = new Set(activeAccountIds.map((id) => id.toString()));
+
+    if (accountId && (!Types.ObjectId.isValid(accountId) || !activeAccountIdSet.has(accountId))) {
+      return NextResponse.json({ entries: [] });
+    }
+
+    const entryQuery: Record<string, unknown> = {
       householdId: context.householdId,
       accountId: { $in: activeAccountIds },
       ...visibilityQuery,
-    })
+    };
+
+    if (accountId) {
+      entryQuery.accountId = new Types.ObjectId(accountId);
+    }
+
+    if (categoryId === "none") {
+      entryQuery.categoryId = null;
+    } else if (categoryId) {
+      if (!Types.ObjectId.isValid(categoryId)) {
+        return NextResponse.json({ entries: [] });
+      }
+      entryQuery.categoryId = new Types.ObjectId(categoryId);
+    }
+
+    if (type) {
+      entryQuery.entryType = type;
+    }
+
+    if (query) {
+      entryQuery.description = { $regex: query, $options: "i" };
+    }
+
+    if (startDate || endDate) {
+      const occurredAt: Record<string, Date> = {};
+
+      if (startDate) {
+        occurredAt.$gte = new Date(`${startDate}T00:00:00.000Z`);
+      }
+
+      if (endDate) {
+        const inclusiveEnd = new Date(`${endDate}T00:00:00.000Z`);
+        inclusiveEnd.setUTCDate(inclusiveEnd.getUTCDate() + 1);
+        occurredAt.$lt = inclusiveEnd;
+      }
+
+      if (Object.keys(occurredAt).length > 0) {
+        entryQuery.occurredAt = occurredAt;
+      }
+    }
+
+    const amountExpressions: Array<Record<string, unknown>> = [];
+    const minAmountMinor = minAmount ? toMinorUnits(Number(minAmount), "USD") : null;
+    const maxAmountMinor = maxAmount ? toMinorUnits(Number(maxAmount), "USD") : null;
+
+    if (minAmountMinor !== null && Number.isFinite(minAmountMinor) && minAmountMinor > 0) {
+      amountExpressions.push({ $gte: [{ $abs: "$amountMinor" }, minAmountMinor] });
+    }
+
+    if (maxAmountMinor !== null && Number.isFinite(maxAmountMinor) && maxAmountMinor > 0) {
+      amountExpressions.push({ $lte: [{ $abs: "$amountMinor" }, maxAmountMinor] });
+    }
+
+    if (amountExpressions.length === 1) {
+      entryQuery.$expr = amountExpressions[0];
+    } else if (amountExpressions.length > 1) {
+      entryQuery.$expr = { $and: amountExpressions };
+    }
+
+    const entries = await LedgerEntry.find(entryQuery)
       .sort({ occurredAt: -1, createdAt: -1 })
-      .limit(30)
+      .limit(limit)
       .lean();
 
     return NextResponse.json({

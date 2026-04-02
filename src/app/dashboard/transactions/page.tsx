@@ -65,12 +65,42 @@ export default function TransactionsPage() {
   } | null>(null);
   const [closedMonths, setClosedMonths] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [filters, setFilters] = useState({
+    query: "",
+    accountId: "",
+    categoryId: "",
+    entryType: "",
+    startDate: "",
+    endDate: "",
+    minAmount: "",
+    maxAmount: "",
+  });
 
   const currentMonthKey = toMonthKey(new Date());
   const isCurrentMonthClosed = Boolean(closedMonths[currentMonthKey]);
   const showBudgetShortcut =
     isCurrentMonthClosed ||
     (errorMessage?.includes("Reopen the month in Budgets") ?? false);
+  const hasActiveFilters =
+    Boolean(filters.query) ||
+    Boolean(filters.accountId) ||
+    Boolean(filters.categoryId) ||
+    Boolean(filters.entryType) ||
+    Boolean(filters.startDate) ||
+    Boolean(filters.endDate) ||
+    Boolean(filters.minAmount) ||
+    Boolean(filters.maxAmount);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setFilters((previous) => ({ ...previous, query: searchInput.trim() }));
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [searchInput]);
 
   const loadMonthStatusMap = useCallback(async (monthKeys: string[]) => {
     const uniqueMonthKeys = [...new Set(monthKeys)];
@@ -91,9 +121,24 @@ export default function TransactionsPage() {
   }, []);
 
   const loadData = useCallback(async () => {
+    const params = new URLSearchParams();
+
+    if (filters.query) params.set("query", filters.query);
+    if (filters.accountId) params.set("accountId", filters.accountId);
+    if (filters.categoryId) params.set("categoryId", filters.categoryId);
+    if (filters.entryType) params.set("type", filters.entryType);
+    if (filters.startDate) params.set("startDate", filters.startDate);
+    if (filters.endDate) params.set("endDate", filters.endDate);
+    if (filters.minAmount) params.set("minAmount", filters.minAmount);
+    if (filters.maxAmount) params.set("maxAmount", filters.maxAmount);
+
+    const entriesUrl = params.toString()
+      ? `/api/ledger-entries?${params.toString()}`
+      : "/api/ledger-entries";
+
     const [accountsRes, entriesRes, categoriesRes] = await Promise.all([
       fetch("/api/accounts"),
-      fetch("/api/ledger-entries"),
+      fetch(entriesUrl),
       fetch("/api/categories"),
     ]);
 
@@ -116,12 +161,13 @@ export default function TransactionsPage() {
     setEntries(entriesData.entries);
     setCategories(categoriesData.categories);
     setClosedMonths(monthStatusMap);
-  }, [currentMonthKey, loadMonthStatusMap]);
+  }, [currentMonthKey, filters, loadMonthStatusMap]);
 
   useEffect(() => {
     let active = true;
 
     async function hydrateData() {
+      setIsLoading(true);
       await loadData();
 
       if (!active) {
@@ -237,6 +283,20 @@ export default function TransactionsPage() {
 
     form.reset();
     await loadData();
+  }
+
+  function clearFilters() {
+    setSearchInput("");
+    setFilters({
+      query: "",
+      accountId: "",
+      categoryId: "",
+      entryType: "",
+      startDate: "",
+      endDate: "",
+      minAmount: "",
+      maxAmount: "",
+    });
   }
 
   function beginEdit(entry: Entry) {
@@ -489,10 +549,136 @@ export default function TransactionsPage() {
       <section className="panel border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Recent transactions</p>
 
+        <div className="mt-4 space-y-3 rounded-xl border border-border bg-surface p-3">
+          <input
+            data-testid="tx-filter-search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search description"
+            className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
+          />
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <select
+              data-testid="tx-filter-account"
+              value={filters.accountId}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, accountId: event.target.value }))
+              }
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">All accounts</option>
+              {accounts.map((account) => (
+                <option key={`filter-account-${account.id}`} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              data-testid="tx-filter-category"
+              value={filters.categoryId}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, categoryId: event.target.value }))
+              }
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">All categories</option>
+              <option value="none">No category</option>
+              {categories.map((category) => (
+                <option key={`filter-category-${category.id}`} value={category.id}>
+                  {category.name} ({category.kind})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <select
+              data-testid="tx-filter-type"
+              value={filters.entryType}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, entryType: event.target.value }))
+              }
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">All types</option>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+              <option value="transfer_out">Transfer out</option>
+              <option value="transfer_in">Transfer in</option>
+              <option value="opening_balance">Opening balance</option>
+            </select>
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                data-testid="tx-filter-start-date"
+                type="date"
+                value={filters.startDate}
+                onChange={(event) =>
+                  setFilters((previous) => ({ ...previous, startDate: event.target.value }))
+                }
+                className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                data-testid="tx-filter-end-date"
+                type="date"
+                value={filters.endDate}
+                onChange={(event) =>
+                  setFilters((previous) => ({ ...previous, endDate: event.target.value }))
+                }
+                className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <input
+              data-testid="tx-filter-min-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={filters.minAmount}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, minAmount: event.target.value }))
+              }
+              placeholder="Min amount"
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            />
+            <input
+              data-testid="tx-filter-max-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={filters.maxAmount}
+              onChange={(event) =>
+                setFilters((previous) => ({ ...previous, maxAmount: event.target.value }))
+              }
+              placeholder="Max amount"
+              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+            />
+            <button
+              data-testid="tx-filter-clear"
+              type="button"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters && searchInput.length === 0}
+              className="rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-60"
+            >
+              Clear filters
+            </button>
+          </div>
+        </div>
+
         <ul className="mt-4 space-y-2">
-          {isLoading ? <li className="text-sm text-muted">Loading...</li> : null}
+          {isLoading ? (
+            <li data-testid="tx-list-loading" className="text-sm text-muted">
+              Loading...
+            </li>
+          ) : null}
           {!isLoading && entries.length === 0 ? (
-            <li className="text-sm text-muted">No transactions yet.</li>
+            <li className="text-sm text-muted">
+              {hasActiveFilters ? "No transactions match your filters." : "No transactions yet."}
+            </li>
           ) : null}
           {entries.map((entry) => (
             <li key={entry.id} className="rounded-xl border border-border bg-surface px-3 py-3">
