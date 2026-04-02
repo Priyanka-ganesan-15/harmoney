@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireHouseholdContext } from "@/lib/permissions";
@@ -6,6 +7,7 @@ import { Category } from "@/server/models/category";
 const createCategorySchema = z.object({
   name: z.string().min(2).max(80),
   kind: z.enum(["expense", "income"]).default("expense"),
+  parentCategoryId: z.string().optional().nullable(),
 });
 
 export async function GET() {
@@ -24,6 +26,7 @@ export async function GET() {
         id: category._id.toString(),
         name: category.name,
         kind: category.kind,
+        parentCategoryId: category.parentCategoryId?.toString() ?? null,
       })),
     });
   } catch (error) {
@@ -44,10 +47,36 @@ export async function POST(request: Request) {
     const context = await requireHouseholdContext();
     const parsed = createCategorySchema.parse(await request.json());
 
+    // Validate parent category if provided
+    let parentCategoryId: Types.ObjectId | null = null;
+
+    if (parsed.parentCategoryId) {
+      if (!Types.ObjectId.isValid(parsed.parentCategoryId)) {
+        return NextResponse.json({ message: "Invalid parent category id." }, { status: 400 });
+      }
+
+      const parentCategory = await Category.findOne({
+        _id: parsed.parentCategoryId,
+        householdId: context.householdId,
+        kind: parsed.kind,
+        archivedAt: null,
+      }).lean();
+
+      if (!parentCategory) {
+        return NextResponse.json(
+          { message: "Parent category not found." },
+          { status: 404 },
+        );
+      }
+
+      parentCategoryId = new Types.ObjectId(parsed.parentCategoryId);
+    }
+
     const category = await Category.create({
       householdId: context.householdId,
       name: parsed.name.trim(),
       kind: parsed.kind,
+      parentCategoryId: parentCategoryId || null,
     });
 
     return NextResponse.json({
@@ -56,6 +85,7 @@ export async function POST(request: Request) {
         id: category._id.toString(),
         name: category.name,
         kind: category.kind,
+        parentCategoryId: category.parentCategoryId?.toString() ?? null,
       },
     });
   } catch (error) {

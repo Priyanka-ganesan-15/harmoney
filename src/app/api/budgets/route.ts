@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     const visibilityQuery = buildVisibilityQuery(context.userId);
     const url = new URL(request.url);
     const month = monthSchema.parse(url.searchParams.get("month") ?? getCurrentMonthKey());
+    const showHierarchy = url.searchParams.get("hierarchy") === "true";
     const { start, end } = getMonthRange(month);
 
     const period = await BudgetPeriod.findOne({
@@ -118,13 +119,67 @@ export async function GET(request: Request) {
       return {
         categoryId: category._id.toString(),
         categoryName: category.name,
+        parentCategoryId: category.parentCategoryId?.toString() ?? null,
         budgetedMinor,
         actualMinor,
         remainingMinor,
       };
     });
 
-    const totals = lines.reduce(
+    // If hierarchy view requested, compute rollups for parent categories
+    let finalLines = lines;
+
+    if (showHierarchy) {
+      // Build parent->children map
+      const childrenByParent = new Map<string, typeof lines>();
+
+      for (const line of lines) {
+        if (line.parentCategoryId) {
+          const children = childrenByParent.get(line.parentCategoryId) ?? [];
+          children.push(line);
+          childrenByParent.set(line.parentCategoryId, children);
+        }
+      }
+
+      // Create rollup lines for parents that have children
+      const parentRollups: typeof lines = [];
+
+      for (const [parentId, children] of childrenByParent.entries()) {
+        const rollup = {
+          categoryId: parentId,
+          categoryName: "", // Will be filled from category lookup
+          parentCategoryId: null,
+          budgetedMinor: children.reduce((acc, c) => acc + c.budgetedMinor, 0),
+          actualMinor: children.reduce((acc, c) => acc + c.actualMinor, 0),
+          remainingMinor: children.reduce((acc, c) => acc + c.remainingMinor, 0),
+        };
+        parentRollups.push(rollup);
+      }
+
+      // Lookup parent category names
+      const parentIds = parentRollups.map((p) => new Types.ObjectId(p.categoryId));
+      const parentCategories = await Category.find({
+        _id: { $in: parentIds },
+      })
+        .select({ _id: 1, name: 1 })
+        .lean();
+
+      const parentNameMap = new Map(
+        parentCategories.map((c) => [c._id.toString(), c.name]),
+      );
+
+      for (const rollup of parentRollups) {
+        rollup.categoryName = parentNameMap.get(rollup.categoryId) ?? "Unknown";
+      }
+
+      // In hierarchy view, only show parents (with rollups) and root categories (no parent)
+      finalLines = [
+        ...parentRollups,
+        ...lines.filter((l) => !l.parentCategoryId),
+      ].sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+    }
+
+    const totals = finalLines.reduce(
       (acc, line) => ({
         budgetedMinor: acc.budgetedMinor + line.budgetedMinor,
         actualMinor: acc.actualMinor + line.actualMinor,
@@ -137,7 +192,14 @@ export async function GET(request: Request) {
       month,
       currency: period?.currency ?? "USD",
       status: period?.status ?? "open",
-      lines,
+      lines: finalLines.map((l) => ({
+        categoryId: l.categoryId,
+        categoryName: l.categoryName,
+        parentCategoryId: l.parentCategoryId,
+        budgetedMinor: l.budgetedMinor,
+        actualMinor: l.actualMinor,
+        remainingMinor: l.remainingMinor,
+      })),
       totals,
       finalizedAt: null,
     });
