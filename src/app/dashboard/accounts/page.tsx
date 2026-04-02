@@ -4,6 +4,24 @@ import { FormEvent, useEffect, useState } from "react";
 import { formatMoney } from "@/lib/money";
 
 const LIABILITY_KINDS = new Set(["credit", "loan"]);
+const NO_INSTITUTION_KINDS = new Set([
+  "cash",
+  "precious_metals",
+  "real_estate",
+  "other",
+]);
+
+const ACCOUNT_KIND_OPTIONS = [
+  { value: "depository", label: "Depository" },
+  { value: "credit", label: "Credit" },
+  { value: "investment", label: "Investment" },
+  { value: "retirement", label: "Retirement" },
+  { value: "cash", label: "Cash" },
+  { value: "loan", label: "Loan" },
+  { value: "precious_metals", label: "Jewellery / Gold / Silver" },
+  { value: "real_estate", label: "Homes / Real Estate" },
+  { value: "other", label: "Other" },
+] as const;
 
 type AccountItem = {
   id: string;
@@ -11,6 +29,7 @@ type AccountItem = {
   institutionName: string;
   kind: string;
   currency: string;
+  openingBalanceMinor: number;
   currentBalanceMinor: number;
   accessScope: "shared" | "restricted";
   minimumPaymentMinor: number | null;
@@ -24,10 +43,52 @@ type EditState = {
   name: string;
   institutionName: string;
   accessScope: "shared" | "restricted";
+  openingBalance: string;
   minimumPayment: string;
   paymentDueDay: string;
   aprPercent: string;
 };
+
+function shouldShowInstitutionField(kind: string) {
+  return !NO_INSTITUTION_KINDS.has(kind);
+}
+
+function institutionLabelForKind(kind: string) {
+  if (kind === "retirement") {
+    return "Provider / custodian";
+  }
+
+  if (kind === "investment") {
+    return "Broker / platform";
+  }
+
+  return "Institution";
+}
+
+function formatAccountKind(kind: string) {
+  switch (kind) {
+    case "precious_metals":
+      return "Jewellery / Gold / Silver";
+    case "real_estate":
+      return "Homes / Real Estate";
+    case "depository":
+      return "Depository";
+    case "credit":
+      return "Credit";
+    case "investment":
+      return "Investment";
+    case "retirement":
+      return "Retirement";
+    case "cash":
+      return "Cash";
+    case "loan":
+      return "Loan";
+    case "other":
+      return "Other";
+    default:
+      return kind;
+  }
+}
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
@@ -142,6 +203,7 @@ export default function AccountsPage() {
       name: account.name,
       institutionName: account.institutionName,
       accessScope: account.accessScope,
+      openingBalance: (account.openingBalanceMinor / 100).toFixed(2),
       minimumPayment:
         account.minimumPaymentMinor !== null
           ? (account.minimumPaymentMinor / 100).toFixed(2)
@@ -170,6 +232,10 @@ export default function AccountsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...editState,
+        institutionName: shouldShowInstitutionField(editState.kind)
+          ? editState.institutionName
+          : "",
+        openingBalance: editState.openingBalance,
         minimumPayment:
           LIABILITY_KINDS.has(editState.kind) && editState.minimumPayment
             ? editState.minimumPayment
@@ -234,28 +300,39 @@ export default function AccountsPage() {
 
   return (
     <main className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
-      <section className="panel border-border rounded-3xl border p-6">
+      <section className="panel panel-scroll border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Create account</p>
 
         <form className="mt-4 space-y-3" onSubmit={handleCreateAccount}>
-          <input required name="name" placeholder="Joint checking" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
-          <input name="institutionName" placeholder="Bank name" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
-
-          <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Account type</span>
             <select
               name="kind"
               value={createKind}
               onChange={(event) => setCreateKind(event.target.value)}
-              className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
             >
-              <option value="depository">Depository</option>
-              <option value="credit">Credit</option>
-              <option value="investment">Investment</option>
-              <option value="cash">Cash</option>
-              <option value="loan">Loan</option>
+              {ACCOUNT_KIND_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
+          </label>
 
+          <input required name="name" placeholder="Account name" className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
+
+          {shouldShowInstitutionField(createKind) ? (
+            <input
+              name="institutionName"
+              placeholder={institutionLabelForKind(createKind)}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+            />
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <input name="currency" defaultValue="USD" maxLength={3} className="rounded-xl border border-border bg-surface px-3 py-2 text-sm uppercase" />
+            <input name="openingBalance" defaultValue="0" type="number" step="0.01" className="rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
           </div>
 
           {LIABILITY_KINDS.has(createKind) ? (
@@ -287,8 +364,7 @@ export default function AccountsPage() {
             </div>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <input name="openingBalance" defaultValue="0" type="number" step="0.01" className="rounded-xl border border-border bg-surface px-3 py-2 text-sm" />
+          <div className="grid gap-3 sm:grid-cols-1">
             <select name="accessScope" className="rounded-xl border border-border bg-surface px-3 py-2 text-sm">
               <option value="shared">Shared</option>
               <option value="restricted">Private</option>
@@ -303,10 +379,10 @@ export default function AccountsPage() {
         </form>
       </section>
 
-      <section className="panel border-border rounded-3xl border p-6">
+      <section className="panel panel-scroll border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Accounts</p>
 
-        <ul className="mt-4 space-y-2">
+        <ul className="panel-list-scroll mt-4 space-y-2">
           {isLoading ? <li className="text-sm text-muted">Loading...</li> : null}
           {!isLoading && accounts.length === 0 ? (
             <li className="text-sm text-muted">No accounts yet.</li>
@@ -315,6 +391,29 @@ export default function AccountsPage() {
             <li key={account.id} className="rounded-xl border border-border bg-surface px-3 py-3">
               {editingAccountId === account.id && editState ? (
                 <div className="space-y-2">
+                  <select
+                    value={editState.kind}
+                    onChange={(event) =>
+                      setEditState((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              kind: event.target.value,
+                              institutionName: shouldShowInstitutionField(event.target.value)
+                                ? previous.institutionName
+                                : "",
+                            }
+                          : previous,
+                      )
+                    }
+                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                  >
+                    {ACCOUNT_KIND_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     value={editState.name}
                     onChange={(event) =>
@@ -326,17 +425,53 @@ export default function AccountsPage() {
                     }
                     className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
                   />
-                  <input
-                    value={editState.institutionName}
-                    onChange={(event) =>
-                      setEditState((previous) =>
-                        previous
-                          ? { ...previous, institutionName: event.target.value }
-                          : previous,
-                      )
-                    }
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                  />
+
+                  {shouldShowInstitutionField(editState.kind) ? (
+                    <input
+                      value={editState.institutionName}
+                      onChange={(event) =>
+                        setEditState((previous) =>
+                          previous
+                            ? { ...previous, institutionName: event.target.value }
+                            : previous,
+                        )
+                      }
+                      placeholder={institutionLabelForKind(editState.kind)}
+                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                    />
+                  ) : null}
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      value={editState.currency}
+                      onChange={(event) =>
+                        setEditState((previous) =>
+                          previous
+                            ? {
+                                ...previous,
+                                currency: event.target.value.toUpperCase(),
+                              }
+                            : previous,
+                        )
+                      }
+                      maxLength={3}
+                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm uppercase"
+                    />
+                    <input
+                      value={editState.openingBalance}
+                      onChange={(event) =>
+                        setEditState((previous) =>
+                          previous
+                            ? { ...previous, openingBalance: event.target.value }
+                            : previous,
+                        )
+                      }
+                      type="number"
+                      step="0.01"
+                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                    />
+                  </div>
+
                   <select
                     value={editState.accessScope}
                     onChange={(event) =>
@@ -429,6 +564,7 @@ export default function AccountsPage() {
                 <>
                   <p className="font-medium text-foreground">{account.name}</p>
                   <p className="text-xs text-muted">{account.institutionName || "No institution"}</p>
+                  <p className="text-xs text-muted">{formatAccountKind(account.kind)}</p>
                   <p className="mt-1 text-sm text-foreground">
                     {LIABILITY_KINDS.has(account.kind)
                       ? `Owed ${formatMoney(Math.abs(account.currentBalanceMinor) / 100, account.currency)}`

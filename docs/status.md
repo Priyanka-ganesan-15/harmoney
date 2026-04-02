@@ -88,6 +88,10 @@ Two-layer dashboard framework rollout (Total Wealth + Monthly Activity).
 - Dashboard framework continuation:
 	- Monthly credit activity refinement (statement vs payment schedule accuracy)
 	- Couples attribution evolution (support joint/shared split mode beyond createdByUserId)
+- Phase 1 visual intelligence foundation:
+	- Added `/api/analytics/dashboard-visuals` for period-aware net worth trend and cashflow composition data.
+	- Added dashboard `Financial visuals` widget with time-range controls (1M/3M/6M/12M), net worth trend bars, and cashflow waterfall.
+	- Wired new widget into dashboard in both empty-account and active-account layouts.
 
 ## Next Steps
 
@@ -95,6 +99,13 @@ Two-layer dashboard framework rollout (Total Wealth + Monthly Activity).
 2. Add partner contribution breakdown with explicit joint/shared split support.
 3. Enhance alerts with unusual-spike baseline comparisons and actionable deep links.
 4. Add trends/momentum widgets for net worth, spending, and savings.
+
+## Pending (Phase 2)
+
+1. Add a shared global period selector for dashboard pages and connect existing widgets to that single time context.
+2. Build partner spend decomposition visuals (shared vs individual, category-level contribution, trend deltas).
+3. Add decision cards for couples: spending drift by partner, recurring-cost creep, and projected month-end cash risk.
+4. Add drilldown navigation from chart buckets into filtered transactions and payment instances.
 
 ## Open Decisions
 

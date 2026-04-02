@@ -471,7 +471,7 @@ export default function PaymentsPage() {
   if (!hasMounted) {
     return (
       <main className="grid gap-5 lg:grid-cols-[1fr_1fr]">
-        <section className="panel border-border rounded-3xl border p-6 lg:col-span-2">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6 lg:col-span-2">
           <p className="text-sm text-muted">Loading payments...</p>
         </section>
       </main>
@@ -607,7 +607,7 @@ export default function PaymentsPage() {
           </form>
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Variable monthly amounts</p>
           <p className="mt-1 text-sm text-muted">
             Override amount for a specific month when bills change.
@@ -664,7 +664,7 @@ export default function PaymentsPage() {
       </section>
 
       <section className="grid gap-5">
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm uppercase tracking-[0.22em] text-muted">Payment tracker</p>
             <div className="flex items-center gap-2">
@@ -693,7 +693,7 @@ export default function PaymentsPage() {
           {isLoading ? <p className="mt-4 text-sm text-muted">Loading...</p> : null}
 
           {!isLoading ? (
-            <ul className="mt-3 space-y-2">
+            <ul className="panel-list-scroll mt-3 space-y-2">
               {upcoming.length === 0 ? (
                 <li className="text-sm text-muted">No scheduled payment instances yet.</li>
               ) : (
@@ -926,7 +926,7 @@ export default function PaymentsPage() {
           ) : null}
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Monthly obligations forecast</p>
           <p className="mt-1 text-sm text-muted">
             Expected obligations over the next six months.

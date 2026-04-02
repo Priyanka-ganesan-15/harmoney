@@ -397,7 +397,7 @@ export default function BudgetsPage() {
   return (
     <main className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
       <section className="grid gap-5">
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Budget period</p>
           <div className="mt-3 flex items-center gap-3">
             <input
@@ -443,7 +443,7 @@ export default function BudgetsPage() {
           ) : null}
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Create expense category</p>
 
           <form className="mt-4 space-y-3" onSubmit={handleCreateCategory}>
@@ -513,7 +513,7 @@ export default function BudgetsPage() {
           </div>
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Set category budget</p>
 
           <form className="mt-4 space-y-3" onSubmit={handleSaveBudgetLine}>
@@ -549,7 +549,7 @@ export default function BudgetsPage() {
           </form>
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Recurring expenses</p>
 
           <form className="mt-4 space-y-3" onSubmit={handleSaveRecurring}>
@@ -646,7 +646,7 @@ export default function BudgetsPage() {
         {errorMessage ? <p className="text-sm text-warning">{errorMessage}</p> : null}
       </section>
 
-      <section className="panel border-border rounded-3xl border p-6">
+      <section className="panel panel-scroll border-border rounded-3xl border p-6">
         <div className="flex items-center justify-between">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Budget vs actual</p>
           <button
@@ -677,7 +677,7 @@ export default function BudgetsPage() {
               </p>
             </div>
 
-            <ul className="mt-4 space-y-2">
+            <ul className="panel-list-scroll mt-4 space-y-2">
               {budget.lines.length === 0 ? (
                 <li className="text-sm text-muted">No expense categories yet.</li>
               ) : (

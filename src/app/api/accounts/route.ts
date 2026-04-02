@@ -13,7 +13,17 @@ import { TransactionGroup } from "@/server/models/transaction-group";
 const createAccountSchema = z.object({
   name: z.string().min(2).max(80),
   institutionName: z.string().max(120).optional().default(""),
-  kind: z.enum(["depository", "credit", "investment", "cash", "loan"]),
+  kind: z.enum([
+    "depository",
+    "credit",
+    "investment",
+    "retirement",
+    "cash",
+    "loan",
+    "precious_metals",
+    "real_estate",
+    "other",
+  ]),
   currency: z.string().length(3).transform((value) => value.toUpperCase()),
   openingBalance: z.union([z.string(), z.number()]),
   minimumPayment: z.union([z.string(), z.number()]).optional(),

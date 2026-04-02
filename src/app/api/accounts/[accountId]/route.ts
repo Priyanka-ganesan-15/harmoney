@@ -1,14 +1,31 @@
 import { Types } from "mongoose";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { assertOpeningBalanceInvariant } from "@/lib/accounting-invariants";
+import { normalizeOpeningBalanceMinorByAccountKind } from "@/lib/ledger-sign";
 import { toMinorUnits } from "@/lib/money";
 import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions";
 import { Account } from "@/server/models/account";
 import { AuditEvent } from "@/server/models/audit-event";
+import { LedgerEntry } from "@/server/models/ledger-entry";
+import { TransactionGroup } from "@/server/models/transaction-group";
 
 const updateAccountSchema = z.object({
   name: z.string().min(2).max(80),
   institutionName: z.string().max(120).optional().default(""),
+  kind: z.enum([
+    "depository",
+    "credit",
+    "investment",
+    "retirement",
+    "cash",
+    "loan",
+    "precious_metals",
+    "real_estate",
+    "other",
+  ]),
+  currency: z.string().length(3).transform((value) => value.toUpperCase()),
+  openingBalance: z.union([z.string(), z.number()]),
   accessScope: z.enum(["shared", "restricted"]),
   minimumPayment: z.union([z.string(), z.number()]).optional(),
   paymentDueDay: z.number().int().min(1).max(28).nullable().optional(),
@@ -54,11 +71,32 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ message: "Account not found." }, { status: 404 });
     }
 
+    const oldName = account.name;
+    const oldInstitutionName = account.institutionName;
+    const oldKind = account.kind;
+    const oldCurrency = account.currency;
+    const oldOpeningBalanceMinor = account.openingBalanceMinor;
     const oldAccessScope = account.accessScope;
     const oldMinimumPaymentMinor = account.minimumPaymentMinor ?? null;
     const oldPaymentDueDay = account.paymentDueDay ?? null;
     const oldAprPercent = account.aprPercent ?? null;
-    const isDebtAccount = account.kind === "credit" || account.kind === "loan";
+
+    const openingBalanceRawMinor = toMinorUnits(
+      Number(parsed.openingBalance || 0),
+      parsed.currency,
+    );
+    const openingBalanceMinor = normalizeOpeningBalanceMinorByAccountKind(
+      parsed.kind,
+      openingBalanceRawMinor,
+    );
+
+    assertOpeningBalanceInvariant(parsed.kind, openingBalanceMinor);
+
+    const isDebtAccount = parsed.kind === "credit" || parsed.kind === "loan";
+
+    account.kind = parsed.kind;
+    account.currency = parsed.currency;
+    account.openingBalanceMinor = openingBalanceMinor;
 
     account.name = parsed.name.trim();
     account.institutionName = parsed.institutionName.trim();
@@ -78,6 +116,43 @@ export async function PATCH(request: Request, { params }: Params) {
       account.aprPercent = null;
     }
 
+    if (oldCurrency !== parsed.currency) {
+      await LedgerEntry.updateMany(
+        {
+          householdId: context.householdId,
+          accountId: account._id,
+        },
+        {
+          $set: { currency: parsed.currency },
+        },
+      );
+    }
+
+    const openingBalanceDeltaMinor = openingBalanceMinor - oldOpeningBalanceMinor;
+    if (openingBalanceDeltaMinor !== 0) {
+      const group = await TransactionGroup.create({
+        householdId: context.householdId,
+        type: "manual",
+        createdByUserId: context.userId,
+        notes: "Opening balance adjustment",
+      });
+
+      await LedgerEntry.create({
+        householdId: context.householdId,
+        accountId: account._id,
+        transactionGroupId: group._id,
+        entryType: "adjustment",
+        amountMinor: openingBalanceDeltaMinor,
+        currency: parsed.currency,
+        description: "Opening balance adjustment",
+        occurredAt: new Date(),
+        createdByUserId: context.userId,
+        accessScope: parsed.accessScope,
+        visibleToMemberIds: parsed.accessScope === "restricted" ? [context.userId] : [],
+        sourceType: "system",
+      });
+    }
+
     await account.save();
 
     await AuditEvent.create({
@@ -87,6 +162,16 @@ export async function PATCH(request: Request, { params }: Params) {
       entityId: account._id,
       action: "account.updated",
       metadata: {
+        previousName: oldName,
+        name: account.name,
+        previousInstitutionName: oldInstitutionName,
+        institutionName: account.institutionName,
+        previousKind: oldKind,
+        kind: account.kind,
+        previousCurrency: oldCurrency,
+        currency: account.currency,
+        previousOpeningBalanceMinor: oldOpeningBalanceMinor,
+        openingBalanceMinor: account.openingBalanceMinor,
         previousAccessScope: oldAccessScope,
         accessScope: parsed.accessScope,
         previousMinimumPaymentMinor: oldMinimumPaymentMinor,
@@ -109,6 +194,17 @@ export async function PATCH(request: Request, { params }: Params) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { message: "Invalid account payload.", issues: error.issues },
+        { status: 400 },
+      );
+    }
+
+    if (
+      error instanceof Error &&
+      (error.message === "OPENING_BALANCE_INVALID" ||
+        error.message === "LIABILITY_OPENING_BALANCE_INVALID")
+    ) {
+      return NextResponse.json(
+        { message: "Invalid opening balance for this account type." },
         { status: 400 },
       );
     }

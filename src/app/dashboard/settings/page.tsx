@@ -38,7 +38,7 @@ export default function SettingsPage() {
 
   return (
     <main className="min-h-screen px-6 py-14 sm:px-8">
-      <section className="panel border-border mx-auto w-full max-w-2xl rounded-3xl border p-8">
+      <section className="panel panel-scroll border-border mx-auto w-full max-w-2xl rounded-3xl border p-8">
         <h1 className="font-display text-4xl tracking-tight">Household settings</h1>
         <p className="text-muted mt-2 text-sm">
           Invite your partner to join this household and share the dashboard.

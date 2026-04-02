@@ -4,18 +4,24 @@ import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions
 import { Account } from "@/server/models/account";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 
-function getCurrentMonthKey() {
+function resolvePeriod(url: URL) {
   const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
+  const view = (url.searchParams.get("view") ?? "monthly") as "monthly" | "annual";
+  const parsedYear = Number(url.searchParams.get("year") ?? now.getUTCFullYear());
+  const year = Number.isFinite(parsedYear) ? parsedYear : now.getUTCFullYear();
+  const parsedMonth = Number(url.searchParams.get("month") ?? now.getUTCMonth() + 1);
+  const month = Math.min(Math.max(Number.isFinite(parsedMonth) ? parsedMonth : now.getUTCMonth() + 1, 1), 12);
 
-function getMonthRange(month: string) {
-  const [year, monthIndex] = month.split("-").map((value) => Number(value));
-  const start = new Date(Date.UTC(year, monthIndex - 1, 1));
-  const end = new Date(Date.UTC(year, monthIndex, 1));
-  return { start, end };
+  if (view === "annual") {
+    const start = new Date(Date.UTC(year, 0, 1));
+    const end = new Date(Date.UTC(year + 1, 0, 1));
+    return { view, year, month: null, start, end, periodLabel: String(year) };
+  }
+
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+  const monthKey = `${year}-${String(month).padStart(2, "0")}`;
+  return { view, year, month, start, end, periodLabel: monthKey };
 }
 
 export async function GET(request: Request) {
@@ -23,8 +29,7 @@ export async function GET(request: Request) {
     const context = await requireHouseholdContext();
     const visibilityQuery = buildVisibilityQuery(context.userId);
     const url = new URL(request.url);
-    const month = url.searchParams.get("month") ?? getCurrentMonthKey();
-    const { start, end } = getMonthRange(month);
+    const { view, year, month, start, end, periodLabel } = resolvePeriod(url);
 
     const activeAccounts = await Account.find({
       householdId: context.householdId,
@@ -38,7 +43,10 @@ export async function GET(request: Request) {
 
     if (activeAccountIds.length === 0) {
       return NextResponse.json({
+        view,
+        year,
         month,
+        periodLabel,
         totalMinor: 0,
         currency: "USD",
         categories: [],
@@ -93,7 +101,10 @@ export async function GET(request: Request) {
     const totalMinor = expensesByCategory.reduce((sum, cat) => sum + cat.totalMinor, 0);
 
     return NextResponse.json({
+      view,
+      year,
       month,
+      periodLabel,
       totalMinor,
       currency: "USD",
       categories: expensesByCategory.map((cat) => ({

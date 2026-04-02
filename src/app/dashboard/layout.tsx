@@ -50,7 +50,7 @@ export default async function DashboardLayout({
           </div>
         </header>
 
-        {children}
+        <div className="dashboard-content">{children}</div>
       </div>
     </div>
   );

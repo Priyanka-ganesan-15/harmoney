@@ -20,7 +20,17 @@ const accountSchema = new Schema(
     },
     kind: {
       type: String,
-      enum: ["depository", "credit", "investment", "cash", "loan"],
+      enum: [
+        "depository",
+        "credit",
+        "investment",
+        "retirement",
+        "cash",
+        "loan",
+        "precious_metals",
+        "real_estate",
+        "other",
+      ],
       required: true,
     },
     currency: {

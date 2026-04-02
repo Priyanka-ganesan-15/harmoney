@@ -1,4 +1,13 @@
-type AccountKind = "depository" | "credit" | "investment" | "cash" | "loan";
+type AccountKind =
+  | "depository"
+  | "credit"
+  | "investment"
+  | "retirement"
+  | "cash"
+  | "loan"
+  | "precious_metals"
+  | "real_estate"
+  | "other";
 type TransactionType = "income" | "expense";
 
 const LIABILITY_KINDS = new Set<AccountKind>(["credit", "loan"]);

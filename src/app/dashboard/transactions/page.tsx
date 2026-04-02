@@ -102,6 +102,30 @@ export default function TransactionsPage() {
     };
   }, [searchInput]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const query = params.get("query") ?? "";
+    const accountId = params.get("accountId") ?? "";
+    const categoryId = params.get("categoryId") ?? "";
+    const entryType = params.get("type") ?? "";
+    const startDate = params.get("startDate") ?? "";
+    const endDate = params.get("endDate") ?? "";
+    const minAmount = params.get("minAmount") ?? "";
+    const maxAmount = params.get("maxAmount") ?? "";
+
+    setSearchInput(query);
+    setFilters({
+      query,
+      accountId,
+      categoryId,
+      entryType,
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+    });
+  }, []);
+
   const loadMonthStatusMap = useCallback(async (monthKeys: string[]) => {
     const uniqueMonthKeys = [...new Set(monthKeys)];
     const responses = await Promise.all(
@@ -437,7 +461,7 @@ export default function TransactionsPage() {
   return (
     <main className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
       <section className="grid gap-5">
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Add transaction</p>
           <p className="mt-2 text-xs text-muted">
             {isCurrentMonthClosed
@@ -483,7 +507,7 @@ export default function TransactionsPage() {
           </form>
         </section>
 
-        <section className="panel border-border rounded-3xl border p-6">
+        <section className="panel panel-scroll border-border rounded-3xl border p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-muted">Transfer between accounts</p>
           <p className="mt-2 text-xs text-muted">
             Transfers follow month close status for the transaction date.
@@ -546,7 +570,7 @@ export default function TransactionsPage() {
         ) : null}
       </section>
 
-      <section className="panel border-border rounded-3xl border p-6">
+      <section className="panel panel-scroll border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Recent transactions</p>
 
         <div className="mt-4 space-y-3 rounded-xl border border-border bg-surface p-3">
@@ -669,7 +693,7 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        <ul className="mt-4 space-y-2">
+        <ul className="panel-list-scroll-lg mt-4 space-y-2">
           {isLoading ? (
             <li data-testid="tx-list-loading" className="text-sm text-muted">
               Loading...
