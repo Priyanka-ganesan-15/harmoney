@@ -10,7 +10,19 @@ import { PaymentReminder } from "@/server/models/payment-reminder";
 const updatePaymentSchema = z.object({
   label: z.string().min(2).max(120),
   type: z
-    .enum(["credit_card", "rent", "loan", "utilities", "subscription", "other"])
+    .enum([
+      "credit_card",
+      "rent",
+      "mortgage",
+      "loan",
+      "utilities",
+      "subscription",
+      "insurance",
+      "tax",
+      "savings_contribution",
+      "investment_contribution",
+      "other",
+    ])
     .default("other"),
   recurrence: z.enum(["monthly", "quarterly", "annually", "one_time"]),
   startDate: z.string().datetime(),
@@ -20,6 +32,11 @@ const updatePaymentSchema = z.object({
   currency: z.string().length(3),
   notes: z.string().max(280).optional().default(""),
   isActive: z.boolean(),
+  payFromAccountId: z.string().optional().nullable(),
+  liabilityAccountId: z.string().optional().nullable(),
+  payeeName: z.string().max(120).optional().nullable(),
+  dueDay: z.number().int().min(1).max(28).optional().nullable(),
+  linkedCategoryId: z.string().optional().nullable(),
 });
 
 type Params = {
@@ -69,6 +86,20 @@ export async function PATCH(request: Request, { params }: Params) {
     payment.currency = currency;
     payment.notes = parsed.notes.trim();
     payment.isActive = parsed.isActive;
+    payment.payFromAccountId =
+      parsed.payFromAccountId && Types.ObjectId.isValid(parsed.payFromAccountId)
+        ? new Types.ObjectId(parsed.payFromAccountId)
+        : null;
+    payment.liabilityAccountId =
+      parsed.liabilityAccountId && Types.ObjectId.isValid(parsed.liabilityAccountId)
+        ? new Types.ObjectId(parsed.liabilityAccountId)
+        : null;
+    payment.payeeName = parsed.payeeName?.trim() ?? null;
+    payment.dueDay = parsed.dueDay ?? null;
+    payment.linkedCategoryId =
+      parsed.linkedCategoryId && Types.ObjectId.isValid(parsed.linkedCategoryId)
+        ? new Types.ObjectId(parsed.linkedCategoryId)
+        : null;
 
     await payment.save();
 

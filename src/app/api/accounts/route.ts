@@ -6,6 +6,7 @@ import { normalizeOpeningBalanceMinorByAccountKind } from "@/lib/ledger-sign";
 import { toMinorUnits } from "@/lib/money";
 import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions";
 import { Account } from "@/server/models/account";
+import { AccountBalanceSnapshot } from "@/server/models/account-balance-snapshot";
 import { AuditEvent } from "@/server/models/audit-event";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 import { TransactionGroup } from "@/server/models/transaction-group";
@@ -162,6 +163,16 @@ export async function POST(request: Request) {
       accessScope: parsed.accessScope,
       visibleToMemberIds: parsed.accessScope === "restricted" ? [context.userId] : [],
       sourceType: "manual",
+    });
+
+    // Capture baseline historical point-in-time balance at account creation.
+    await AccountBalanceSnapshot.create({
+      householdId: context.householdId,
+      accountId: account._id,
+      snapshotDate: new Date(),
+      balanceMinor: openingBalanceMinor,
+      currency: parsed.currency,
+      source: "manual",
     });
 
     await AuditEvent.create({

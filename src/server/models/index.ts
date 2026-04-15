@@ -1,4 +1,5 @@
 export { Account } from "@/server/models/account";
+export { AccountBalanceSnapshot } from "@/server/models/account-balance-snapshot";
 export { AuditEvent } from "@/server/models/audit-event";
 export { BudgetLine } from "@/server/models/budget-line";
 export { BudgetPeriod } from "@/server/models/budget-period";

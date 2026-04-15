@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatMoney } from "@/lib/money";
 
 const LIABILITY_KINDS = new Set(["credit", "loan"]);
@@ -47,6 +47,7 @@ type EditState = {
   minimumPayment: string;
   paymentDueDay: string;
   aprPercent: string;
+  captureSnapshot: boolean;
 };
 
 function shouldShowInstitutionField(kind: string) {
@@ -98,7 +99,12 @@ export default function AccountsPage() {
   const [isArchiving, setIsArchiving] = useState<string | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [createKind, setCreateKind] = useState("depository");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<"all" | "shared" | "restricted">("all");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadAccounts() {
@@ -140,6 +146,58 @@ export default function AccountsPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    function onHotkey(event: KeyboardEvent) {
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const metaOrCtrl = isMac ? event.metaKey : event.ctrlKey;
+      if (!metaOrCtrl || event.key.toLowerCase() !== "k") {
+        return;
+      }
+
+      event.preventDefault();
+      setPaletteOpen((previous) => !previous);
+    }
+
+    window.addEventListener("keydown", onHotkey);
+    return () => {
+      window.removeEventListener("keydown", onHotkey);
+    };
+  }, []);
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      const scopeMatch =
+        scopeFilter === "all" ? true : account.accessScope === scopeFilter;
+      const searchMatch = searchQuery.trim()
+        ? `${account.name} ${account.institutionName} ${account.kind}`
+            .toLowerCase()
+            .includes(searchQuery.trim().toLowerCase())
+        : true;
+
+      return scopeMatch && searchMatch;
+    });
+  }, [accounts, scopeFilter, searchQuery]);
+
+  const summary = useMemo(() => {
+    const sharedCount = accounts.filter((account) => account.accessScope === "shared").length;
+    const privateCount = accounts.length - sharedCount;
+
+    const netWorthMinor = accounts.reduce((runningTotal, account) => {
+      if (LIABILITY_KINDS.has(account.kind)) {
+        return runningTotal - account.currentBalanceMinor;
+      }
+
+      return runningTotal + account.currentBalanceMinor;
+    }, 0);
+
+    return {
+      totalCount: accounts.length,
+      sharedCount,
+      privateCount,
+      netWorthMinor,
+    };
+  }, [accounts]);
 
   async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -197,6 +255,7 @@ export default function AccountsPage() {
   function beginEdit(account: AccountItem) {
     setErrorMessage(null);
     setEditingAccountId(account.id);
+    setEditorOpen(true);
     setEditState({
       kind: account.kind,
       currency: account.currency,
@@ -211,10 +270,12 @@ export default function AccountsPage() {
       paymentDueDay:
         account.paymentDueDay !== null ? String(account.paymentDueDay) : "",
       aprPercent: account.aprPercent !== null ? String(account.aprPercent) : "",
+      captureSnapshot: true,
     });
   }
 
   function cancelEdit() {
+    setEditorOpen(false);
     setEditingAccountId(null);
     setEditState(null);
   }
@@ -248,6 +309,7 @@ export default function AccountsPage() {
           LIABILITY_KINDS.has(editState.kind) && editState.aprPercent
             ? Number(editState.aprPercent)
             : null,
+        captureSnapshot: editState.captureSnapshot,
       }),
     });
 
@@ -291,16 +353,74 @@ export default function AccountsPage() {
       return;
     }
 
-    if (editingAccountId === accountId) {
+    if (editingAccountId === accountId && editorOpen) {
       cancelEdit();
     }
 
     await loadAccounts();
   }
 
+  const actions = [
+    {
+      id: "show-all",
+      label: "Show all accounts",
+      run: () => setScopeFilter("all"),
+    },
+    {
+      id: "show-shared",
+      label: "Show shared accounts",
+      run: () => setScopeFilter("shared"),
+    },
+    {
+      id: "show-private",
+      label: "Show private accounts",
+      run: () => setScopeFilter("restricted"),
+    },
+    {
+      id: "clear-search",
+      label: "Clear account search",
+      run: () => setSearchQuery(""),
+    },
+    {
+      id: "refresh",
+      label: "Refresh accounts",
+      run: () => {
+        void loadAccounts();
+      },
+    },
+  ].filter((action) =>
+    action.label.toLowerCase().includes(paletteQuery.trim().toLowerCase()),
+  );
+
   return (
-    <main className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
-      <section className="panel panel-scroll border-border rounded-3xl border p-6">
+    <>
+      <main className="grid gap-5">
+        <section className="panel border-border rounded-3xl border p-6">
+          <p className="text-sm uppercase tracking-[0.22em] text-muted">Accounts at a glance</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted">Net worth</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">
+                {formatMoney(summary.netWorthMinor / 100, "USD")}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted">Total accounts</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{summary.totalCount}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted">Shared</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{summary.sharedCount}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-surface px-3 py-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-muted">Private</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">{summary.privateCount}</p>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid gap-5 lg:grid-cols-[1.05fr_1fr]">
+          <section className="panel panel-scroll border-border rounded-3xl border p-6">
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Create account</p>
 
         <form className="mt-4 space-y-3" onSubmit={handleCreateAccount}>
@@ -377,224 +497,330 @@ export default function AccountsPage() {
             {isSubmitting ? "Saving..." : "Create account"}
           </button>
         </form>
-      </section>
+          </section>
 
-      <section className="panel panel-scroll border-border rounded-3xl border p-6">
-        <p className="text-sm uppercase tracking-[0.22em] text-muted">Accounts</p>
+          <section className="panel panel-scroll border-border rounded-3xl border p-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm uppercase tracking-[0.22em] text-muted">Accounts workspace</p>
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Command menu (Cmd/Ctrl+K)
+              </button>
+            </div>
 
-        <ul className="panel-list-scroll mt-4 space-y-2">
+            <div className="mt-3 grid gap-3">
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search accounts, institution, or account type"
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+
+              <div className="flex flex-wrap gap-2">
+                {(["all", "shared", "restricted"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setScopeFilter(value)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      scopeFilter === value
+                        ? "bg-accent text-white"
+                        : "border border-border bg-surface text-foreground"
+                    }`}
+                  >
+                    {value === "all" ? "All" : value === "shared" ? "Shared" : "Private"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <ul className="panel-list-scroll mt-4 space-y-2">
           {isLoading ? <li className="text-sm text-muted">Loading...</li> : null}
-          {!isLoading && accounts.length === 0 ? (
-            <li className="text-sm text-muted">No accounts yet.</li>
+          {!isLoading && filteredAccounts.length === 0 ? (
+            <li className="text-sm text-muted">No accounts match this view.</li>
           ) : null}
-          {accounts.map((account) => (
+          {filteredAccounts.map((account) => (
             <li key={account.id} className="rounded-xl border border-border bg-surface px-3 py-3">
-              {editingAccountId === account.id && editState ? (
-                <div className="space-y-2">
-                  <select
-                    value={editState.kind}
-                    onChange={(event) =>
-                      setEditState((previous) =>
-                        previous
-                          ? {
-                              ...previous,
-                              kind: event.target.value,
-                              institutionName: shouldShowInstitutionField(event.target.value)
-                                ? previous.institutionName
-                                : "",
-                            }
-                          : previous,
-                      )
-                    }
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                  >
-                    {ACCOUNT_KIND_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={editState.name}
-                    onChange={(event) =>
-                      setEditState((previous) =>
-                        previous
-                          ? { ...previous, name: event.target.value }
-                          : previous,
-                      )
-                    }
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                  />
+              <p className="font-medium text-foreground">{account.name}</p>
+              <p className="text-xs text-muted">{account.institutionName || "No institution"}</p>
+              <p className="text-xs text-muted">{formatAccountKind(account.kind)}</p>
+              <p className="mt-1 text-sm text-foreground">
+                {LIABILITY_KINDS.has(account.kind)
+                  ? `Owed ${formatMoney(Math.abs(account.currentBalanceMinor) / 100, account.currency)}`
+                  : formatMoney(account.currentBalanceMinor / 100, account.currency)}
+              </p>
+              <p className="text-xs text-muted">{account.accessScope}</p>
 
-                  {shouldShowInstitutionField(editState.kind) ? (
-                    <input
-                      value={editState.institutionName}
-                      onChange={(event) =>
-                        setEditState((previous) =>
-                          previous
-                            ? { ...previous, institutionName: event.target.value }
-                            : previous,
-                        )
-                      }
-                      placeholder={institutionLabelForKind(editState.kind)}
-                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                    />
-                  ) : null}
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <input
-                      value={editState.currency}
-                      onChange={(event) =>
-                        setEditState((previous) =>
-                          previous
-                            ? {
-                                ...previous,
-                                currency: event.target.value.toUpperCase(),
-                              }
-                            : previous,
-                        )
-                      }
-                      maxLength={3}
-                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm uppercase"
-                    />
-                    <input
-                      value={editState.openingBalance}
-                      onChange={(event) =>
-                        setEditState((previous) =>
-                          previous
-                            ? { ...previous, openingBalance: event.target.value }
-                            : previous,
-                        )
-                      }
-                      type="number"
-                      step="0.01"
-                      className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  <select
-                    value={editState.accessScope}
-                    onChange={(event) =>
-                      setEditState((previous) =>
-                        previous
-                          ? {
-                              ...previous,
-                              accessScope: event.target.value as
-                                | "shared"
-                                | "restricted",
-                            }
-                          : previous,
-                      )
-                    }
-                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                  >
-                    <option value="shared">Shared</option>
-                    <option value="restricted">Private</option>
-                  </select>
-
-                  {LIABILITY_KINDS.has(editState.kind) ? (
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      <input
-                        value={editState.minimumPayment}
-                        onChange={(event) =>
-                          setEditState((previous) =>
-                            previous
-                              ? { ...previous, minimumPayment: event.target.value }
-                              : previous,
-                          )
-                        }
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="Minimum payment"
-                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      />
-                      <input
-                        value={editState.paymentDueDay}
-                        onChange={(event) =>
-                          setEditState((previous) =>
-                            previous
-                              ? { ...previous, paymentDueDay: event.target.value }
-                              : previous,
-                          )
-                        }
-                        type="number"
-                        min="1"
-                        max="28"
-                        placeholder="Due day"
-                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      />
-                      <input
-                        value={editState.aprPercent}
-                        onChange={(event) =>
-                          setEditState((previous) =>
-                            previous
-                              ? { ...previous, aprPercent: event.target.value }
-                              : previous,
-                          )
-                        }
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="APR %"
-                        className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      />
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      disabled={isSavingEdit}
-                      onClick={() => void saveEdit(account.id)}
-                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                    >
-                      {isSavingEdit ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelEdit}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <p className="font-medium text-foreground">{account.name}</p>
-                  <p className="text-xs text-muted">{account.institutionName || "No institution"}</p>
-                  <p className="text-xs text-muted">{formatAccountKind(account.kind)}</p>
-                  <p className="mt-1 text-sm text-foreground">
-                    {LIABILITY_KINDS.has(account.kind)
-                      ? `Owed ${formatMoney(Math.abs(account.currentBalanceMinor) / 100, account.currency)}`
-                      : formatMoney(account.currentBalanceMinor / 100, account.currency)}
-                  </p>
-                  <p className="text-xs text-muted">{account.accessScope}</p>
-
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => beginEdit(account)}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isArchiving === account.id}
-                      onClick={() => void archiveAccount(account.id)}
-                      className="rounded-lg border border-warning/40 px-3 py-1.5 text-xs font-semibold text-warning disabled:opacity-60"
-                    >
-                      {isArchiving === account.id ? "Archiving..." : "Archive"}
-                    </button>
-                  </div>
-                </>
-              )}
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => beginEdit(account)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  disabled={isArchiving === account.id}
+                  onClick={() => void archiveAccount(account.id)}
+                  className="rounded-lg border border-warning/40 px-3 py-1.5 text-xs font-semibold text-warning disabled:opacity-60"
+                >
+                  {isArchiving === account.id ? "Archiving..." : "Archive"}
+                </button>
+              </div>
             </li>
           ))}
-        </ul>
-      </section>
-    </main>
+            </ul>
+          </section>
+        </div>
+      </main>
+
+      {paletteOpen ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 px-4 pt-20">
+          <div className="panel border-border w-full max-w-2xl rounded-2xl border bg-background p-4">
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={paletteQuery}
+                onChange={(event) => setPaletteQuery(event.target.value)}
+                placeholder="Type an account action"
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setPaletteOpen(false);
+                  setPaletteQuery("");
+                }}
+                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <ul className="mt-3 space-y-2">
+              {actions.map((action) => (
+                <li key={action.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      action.run();
+                      setPaletteOpen(false);
+                      setPaletteQuery("");
+                    }}
+                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm hover:border-accent"
+                  >
+                    {action.label}
+                  </button>
+                </li>
+              ))}
+              {actions.length === 0 ? (
+                <li className="rounded-xl border border-border bg-surface px-3 py-2 text-sm text-muted">
+                  No matching actions
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {editorOpen && editState && editingAccountId ? (
+        <div className="fixed inset-0 z-50 flex">
+          <button
+            type="button"
+            aria-label="Close editor"
+            className="h-full w-full bg-black/25"
+            onClick={cancelEdit}
+          />
+
+          <aside className="panel border-border relative h-full w-full max-w-xl border-l bg-background p-6">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm uppercase tracking-[0.22em] text-muted">Edit account</p>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <select
+                value={editState.kind}
+                onChange={(event) =>
+                  setEditState((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          kind: event.target.value,
+                          institutionName: shouldShowInstitutionField(event.target.value)
+                            ? previous.institutionName
+                            : "",
+                        }
+                      : previous,
+                  )
+                }
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              >
+                {ACCOUNT_KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={editState.name}
+                onChange={(event) =>
+                  setEditState((previous) =>
+                    previous ? { ...previous, name: event.target.value } : previous,
+                  )
+                }
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              />
+
+              {shouldShowInstitutionField(editState.kind) ? (
+                <input
+                  value={editState.institutionName}
+                  onChange={(event) =>
+                    setEditState((previous) =>
+                      previous ? { ...previous, institutionName: event.target.value } : previous,
+                    )
+                  }
+                  placeholder={institutionLabelForKind(editState.kind)}
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                />
+              ) : null}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={editState.currency}
+                  onChange={(event) =>
+                    setEditState((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            currency: event.target.value.toUpperCase(),
+                          }
+                        : previous,
+                    )
+                  }
+                  maxLength={3}
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm uppercase"
+                />
+                <input
+                  value={editState.openingBalance}
+                  onChange={(event) =>
+                    setEditState((previous) =>
+                      previous ? { ...previous, openingBalance: event.target.value } : previous,
+                    )
+                  }
+                  type="number"
+                  step="0.01"
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                />
+              </div>
+
+              <select
+                value={editState.accessScope}
+                onChange={(event) =>
+                  setEditState((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          accessScope: event.target.value as "shared" | "restricted",
+                        }
+                      : previous,
+                  )
+                }
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              >
+                <option value="shared">Shared</option>
+                <option value="restricted">Private</option>
+              </select>
+
+              {LIABILITY_KINDS.has(editState.kind) ? (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <input
+                    value={editState.minimumPayment}
+                    onChange={(event) =>
+                      setEditState((previous) =>
+                        previous ? { ...previous, minimumPayment: event.target.value } : previous,
+                      )
+                    }
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Minimum payment"
+                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={editState.paymentDueDay}
+                    onChange={(event) =>
+                      setEditState((previous) =>
+                        previous ? { ...previous, paymentDueDay: event.target.value } : previous,
+                      )
+                    }
+                    type="number"
+                    min="1"
+                    max="28"
+                    placeholder="Due day"
+                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={editState.aprPercent}
+                    onChange={(event) =>
+                      setEditState((previous) =>
+                        previous ? { ...previous, aprPercent: event.target.value } : previous,
+                      )
+                    }
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="APR %"
+                    className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                  />
+                </div>
+              ) : null}
+
+              <label className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={editState.captureSnapshot}
+                  onChange={(event) =>
+                    setEditState((previous) =>
+                      previous ? { ...previous, captureSnapshot: event.target.checked } : previous,
+                    )
+                  }
+                />
+                Create snapshot on save
+              </label>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={isSavingEdit}
+                  onClick={() => void saveEdit(editingAccountId)}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                  {isSavingEdit ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+    </>
   );
 }

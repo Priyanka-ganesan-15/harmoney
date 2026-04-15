@@ -6,6 +6,7 @@ import { normalizeOpeningBalanceMinorByAccountKind } from "@/lib/ledger-sign";
 import { toMinorUnits } from "@/lib/money";
 import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions";
 import { Account } from "@/server/models/account";
+import { AccountBalanceSnapshot } from "@/server/models/account-balance-snapshot";
 import { AuditEvent } from "@/server/models/audit-event";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 import { TransactionGroup } from "@/server/models/transaction-group";
@@ -30,6 +31,7 @@ const updateAccountSchema = z.object({
   minimumPayment: z.union([z.string(), z.number()]).optional(),
   paymentDueDay: z.number().int().min(1).max(28).nullable().optional(),
   aprPercent: z.number().min(0).nullable().optional(),
+  captureSnapshot: z.boolean().optional().default(true),
 });
 
 type Params = {
@@ -155,6 +157,36 @@ export async function PATCH(request: Request, { params }: Params) {
 
     await account.save();
 
+    if (parsed.captureSnapshot) {
+      // Capture a new point-in-time balance only when explicitly requested.
+      const [balanceRow] = await LedgerEntry.aggregate<{
+        _id: Types.ObjectId;
+        totalMinor: number;
+      }>([
+        {
+          $match: {
+            householdId: new Types.ObjectId(context.householdId),
+            accountId: account._id,
+          },
+        },
+        {
+          $group: {
+            _id: "$accountId",
+            totalMinor: { $sum: "$amountMinor" },
+          },
+        },
+      ]);
+
+      await AccountBalanceSnapshot.create({
+        householdId: context.householdId,
+        accountId: account._id,
+        snapshotDate: new Date(),
+        balanceMinor: balanceRow?.totalMinor ?? 0,
+        currency: account.currency,
+        source: "manual",
+      });
+    }
+
     await AuditEvent.create({
       householdId: context.householdId,
       actorUserId: context.userId,
@@ -180,6 +212,7 @@ export async function PATCH(request: Request, { params }: Params) {
         paymentDueDay: account.paymentDueDay ?? null,
         previousAprPercent: oldAprPercent,
         aprPercent: account.aprPercent ?? null,
+        snapshotCaptured: parsed.captureSnapshot,
       },
     });
 

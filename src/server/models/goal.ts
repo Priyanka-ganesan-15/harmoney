@@ -14,6 +14,35 @@ const goalSchema = new Schema(
       trim: true,
       maxlength: 120,
     },
+    goalType: {
+      type: String,
+      enum: [
+        "emergency_fund",
+        "debt_payoff",
+        "travel",
+        "home_down_payment",
+        "car",
+        "education",
+        "retirement_bridge",
+        "family_support",
+        "custom",
+      ],
+      required: true,
+      default: "custom",
+    },
+    status: {
+      type: String,
+      enum: ["active", "paused", "completed", "canceled"],
+      required: true,
+      default: "active",
+      index: true,
+    },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      required: true,
+      default: "medium",
+    },
     targetAmountMinor: {
       type: Number,
       required: true,
@@ -35,6 +64,26 @@ const goalSchema = new Schema(
       type: Date,
       default: null,
       index: true,
+    },
+    /** Account where contributions to this goal accumulate. */
+    fundingAccountId: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+      index: true,
+    },
+    /** Budget category linked to this goal for contribution tracking. */
+    linkedBudgetCategoryId: {
+      type: Schema.Types.ObjectId,
+      ref: "Category",
+      default: null,
+      index: true,
+    },
+    notes: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 500,
     },
     isArchived: {
       type: Boolean,

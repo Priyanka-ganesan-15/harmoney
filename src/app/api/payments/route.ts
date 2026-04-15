@@ -9,7 +9,19 @@ import { PaymentReminder } from "@/server/models/payment-reminder";
 const createPaymentSchema = z.object({
   label: z.string().min(2).max(120),
   type: z
-    .enum(["credit_card", "rent", "loan", "utilities", "subscription", "other"])
+    .enum([
+      "credit_card",
+      "rent",
+      "mortgage",
+      "loan",
+      "utilities",
+      "subscription",
+      "insurance",
+      "tax",
+      "savings_contribution",
+      "investment_contribution",
+      "other",
+    ])
     .default("other"),
   recurrence: z.enum(["monthly", "quarterly", "annually", "one_time"]).default("monthly"),
   startDate: z.string().datetime(),
@@ -19,6 +31,16 @@ const createPaymentSchema = z.object({
   currency: z.string().length(3).default("USD"),
   notes: z.string().max(280).optional().default(""),
   isActive: z.boolean().optional().default(true),
+  /** Account the payment is drawn from (e.g. checking). */
+  payFromAccountId: z.string().optional().nullable(),
+  /** Credit/loan account this payment settles. */
+  liabilityAccountId: z.string().optional().nullable(),
+  /** Normalized payee name. */
+  payeeName: z.string().max(120).optional().nullable(),
+  /** Day-of-month this bill is due (1–28). */
+  dueDay: z.number().int().min(1).max(28).optional().nullable(),
+  /** Budget category for this obligation. */
+  linkedCategoryId: z.string().optional().nullable(),
 });
 
 function formatMonthKey(date: Date) {
@@ -118,6 +140,11 @@ export async function GET() {
           isActive: item.isActive,
           nextDueDate: getNextDueDate(item.recurrence, item.startDate ?? null),
           overrides: itemOverrides,
+          payFromAccountId: item.payFromAccountId?.toString() ?? null,
+          liabilityAccountId: item.liabilityAccountId?.toString() ?? null,
+          payeeName: item.payeeName ?? null,
+          dueDay: item.dueDay ?? null,
+          linkedCategoryId: item.linkedCategoryId?.toString() ?? null,
         };
       }),
     });
@@ -164,6 +191,20 @@ export async function POST(request: Request) {
       currency,
       notes: parsed.notes.trim(),
       isActive: parsed.isActive,
+      payFromAccountId:
+        parsed.payFromAccountId && Types.ObjectId.isValid(parsed.payFromAccountId)
+          ? new Types.ObjectId(parsed.payFromAccountId)
+          : null,
+      liabilityAccountId:
+        parsed.liabilityAccountId && Types.ObjectId.isValid(parsed.liabilityAccountId)
+          ? new Types.ObjectId(parsed.liabilityAccountId)
+          : null,
+      payeeName: parsed.payeeName?.trim() ?? null,
+      dueDay: parsed.dueDay ?? null,
+      linkedCategoryId:
+        parsed.linkedCategoryId && Types.ObjectId.isValid(parsed.linkedCategoryId)
+          ? new Types.ObjectId(parsed.linkedCategoryId)
+          : null,
       createdByUserId: new Types.ObjectId(context.userId),
     });
 

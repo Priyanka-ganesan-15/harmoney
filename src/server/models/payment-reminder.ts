@@ -16,7 +16,19 @@ const paymentReminderSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["credit_card", "rent", "loan", "utilities", "subscription", "other"],
+      enum: [
+        "credit_card",
+        "rent",
+        "mortgage",
+        "loan",
+        "utilities",
+        "subscription",
+        "insurance",
+        "tax",
+        "savings_contribution",
+        "investment_contribution",
+        "other",
+      ],
       required: true,
       default: "other",
     },
@@ -58,6 +70,41 @@ const paymentReminderSchema = new Schema(
       default: "",
       trim: true,
       maxlength: 280,
+    },
+    /** Which account the payment is drawn from (e.g. checking). */
+    payFromAccountId: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+      index: true,
+    },
+    /** The credit/loan account this payment settles (for liability payments). */
+    liabilityAccountId: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+      index: true,
+    },
+    /** Normalized payee/merchant name for display and matching. */
+    payeeName: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 120,
+    },
+    /** Day-of-month the payment is due (1–28). Separate from startDate anchor day. */
+    dueDay: {
+      type: Number,
+      default: null,
+      min: 1,
+      max: 28,
+    },
+    /** Budget category this obligation counts against. */
+    linkedCategoryId: {
+      type: Schema.Types.ObjectId,
+      ref: "Category",
+      default: null,
+      index: true,
     },
     isActive: {
       type: Boolean,

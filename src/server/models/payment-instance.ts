@@ -38,7 +38,7 @@ const paymentInstanceSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["upcoming", "paid", "skipped"],
+      enum: ["upcoming", "due_soon", "scheduled", "paid", "overdue", "skipped", "canceled", "matched"],
       required: true,
       default: "upcoming",
       index: true,
@@ -51,6 +51,13 @@ const paymentInstanceSchema = new Schema(
       type: Number,
       default: null,
       min: 0,
+    },
+    /** Pay-from account override — if set, takes precedence over the reminder’s payFromAccountId. */
+    payFromAccountId: {
+      type: Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+      index: true,
     },
     linkedLedgerEntryId: {
       type: Schema.Types.ObjectId,

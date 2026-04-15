@@ -6,14 +6,19 @@ import { formatMoney } from "@/lib/money";
 type PaymentType =
   | "credit_card"
   | "rent"
+  | "mortgage"
   | "loan"
   | "utilities"
   | "subscription"
+  | "insurance"
+  | "tax"
+  | "savings_contribution"
+  | "investment_contribution"
   | "other";
 
 type Recurrence = "monthly" | "quarterly" | "annually" | "one_time";
 type AmountMode = "fixed" | "variable";
-type InstanceStatus = "upcoming" | "paid" | "skipped";
+type InstanceStatus = "upcoming" | "due_soon" | "scheduled" | "paid" | "overdue" | "skipped" | "canceled" | "matched";
 
 type PaymentItem = {
   id: string;
@@ -30,6 +35,17 @@ type PaymentItem = {
   isActive: boolean;
   nextDueDate: string | null;
   overrides: Array<{ monthKey: string; amountMinor: number }>;
+  payFromAccountId: string | null;
+  liabilityAccountId: string | null;
+  payeeName: string | null;
+  dueDay: number | null;
+  linkedCategoryId: string | null;
+};
+
+type AccountOption = {
+  id: string;
+  name: string;
+  kind: string;
 };
 
 type EditState = {
@@ -43,6 +59,9 @@ type EditState = {
   currency: string;
   notes: string;
   isActive: boolean;
+  payFromAccountId: string;
+  payeeName: string;
+  dueDay: string;
 };
 
 type PaymentInstanceItem = {
@@ -57,6 +76,7 @@ type PaymentInstanceItem = {
   status: InstanceStatus;
   paidAt: string | null;
   paidAmountMinor: number | null;
+  payFromAccountId?: string | null;
 };
 
 function monthKeyFromDate(date: Date) {
@@ -86,15 +106,35 @@ function monthLabel(monthKey: string) {
 function paymentTypeLabel(type: PaymentType) {
   if (type === "credit_card") return "Credit card";
   if (type === "rent") return "Rent";
+  if (type === "mortgage") return "Mortgage";
   if (type === "loan") return "Loan";
   if (type === "utilities") return "Utilities";
   if (type === "subscription") return "Subscription";
+  if (type === "insurance") return "Insurance";
+  if (type === "tax") return "Tax";
+  if (type === "savings_contribution") return "Savings contribution";
+  if (type === "investment_contribution") return "Investment contribution";
   return "Other";
+}
+
+function instanceStatusBadge(status: InstanceStatus) {
+  if (status === "paid" || status === "matched")
+    return { label: status === "matched" ? "Matched" : "Paid", className: "bg-green-100 text-green-700" };
+  if (status === "overdue")
+    return { label: "Overdue", className: "bg-red-100 text-red-700" };
+  if (status === "due_soon")
+    return { label: "Due soon", className: "bg-amber-100 text-amber-700" };
+  if (status === "skipped" || status === "canceled")
+    return { label: status === "canceled" ? "Canceled" : "Skipped", className: "bg-border text-muted" };
+  if (status === "scheduled")
+    return { label: "Scheduled", className: "bg-blue-100 text-blue-700" };
+  return { label: "Upcoming", className: "bg-accent/15 text-accent" };
 }
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [instances, setInstances] = useState<PaymentInstanceItem[]>([]);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [hasMounted, setHasMounted] = useState(false);
   const [baseMonthKey] = useState(() => monthKeyFromDate(new Date()));
   const [trackerMonthOffset, setTrackerMonthOffset] = useState(0);
@@ -176,12 +216,19 @@ export default function PaymentsPage() {
     setInstances(data.instances);
   }
 
+  async function loadAccounts() {
+    const response = await fetch("/api/accounts", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = (await response.json()) as { accounts: AccountOption[] };
+    setAccounts(data.accounts ?? []);
+  }
+
   useEffect(() => {
     let active = true;
 
     async function hydrate() {
       setIsLoading(true);
-      await Promise.all([loadPayments(), loadInstances()]);
+      await Promise.all([loadPayments(), loadInstances(), loadAccounts()]);
       if (!active) {
         return;
       }
@@ -264,6 +311,9 @@ export default function PaymentsPage() {
       currency: String(formData.get("currency") ?? "USD"),
       notes: String(formData.get("notes") ?? ""),
       isActive: true,
+      payFromAccountId: String(formData.get("payFromAccountId") ?? "") || null,
+      payeeName: String(formData.get("payeeName") ?? "") || null,
+      dueDay: String(formData.get("dueDay") ?? "") ? Number(formData.get("dueDay")) : null,
     };
 
     const response = await fetch("/api/payments", {
@@ -302,6 +352,9 @@ export default function PaymentsPage() {
       currency: payment.currency,
       notes: payment.notes,
       isActive: payment.isActive,
+      payFromAccountId: payment.payFromAccountId ?? "",
+      payeeName: payment.payeeName ?? "",
+      dueDay: payment.dueDay ? String(payment.dueDay) : "",
     });
   }
 
@@ -339,6 +392,9 @@ export default function PaymentsPage() {
       startDate: editState.startDate ? new Date(editState.startDate).toISOString() : null,
       termMonths: editState.termMonths ? Number(editState.termMonths) : null,
       baseAmount: editState.baseAmount || null,
+      payFromAccountId: editState.payFromAccountId || null,
+      payeeName: editState.payeeName || null,
+      dueDay: editState.dueDay ? Number(editState.dueDay) : null,
     };
 
     const response = await fetch(`/api/payments/${paymentId}`, {
@@ -507,9 +563,14 @@ export default function PaymentsPage() {
                 >
                   <option value="credit_card">Credit card</option>
                   <option value="rent">Rent</option>
+                  <option value="mortgage">Mortgage</option>
                   <option value="loan">Loan</option>
                   <option value="utilities">Utilities</option>
                   <option value="subscription">Subscription</option>
+                  <option value="insurance">Insurance</option>
+                  <option value="tax">Tax</option>
+                  <option value="savings_contribution">Savings contribution</option>
+                  <option value="investment_contribution">Investment contribution</option>
                   <option value="other">Other</option>
                 </select>
               </label>
@@ -593,6 +654,43 @@ export default function PaymentsPage() {
                 placeholder="Notes"
                 className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
               />
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Payee name</span>
+                <input
+                  name="payeeName"
+                  placeholder="e.g. Chase Sapphire, Landlord LLC"
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Due day of month</span>
+                <input
+                  name="dueDay"
+                  type="number"
+                  min="1"
+                  max="28"
+                  placeholder="e.g. 15"
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                />
+              </label>
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Pay from account</span>
+              <select
+                name="payFromAccountId"
+                className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+              >
+                <option value="">Not specified</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
             </label>
 
             {errorMessage ? <p className="text-sm text-warning">{errorMessage}</p> : null}
@@ -730,9 +828,14 @@ export default function PaymentsPage() {
                           >
                             <option value="credit_card">Credit card</option>
                             <option value="rent">Rent</option>
+                            <option value="mortgage">Mortgage</option>
                             <option value="loan">Loan</option>
                             <option value="utilities">Utilities</option>
                             <option value="subscription">Subscription</option>
+                            <option value="insurance">Insurance</option>
+                            <option value="tax">Tax</option>
+                            <option value="savings_contribution">Savings contribution</option>
+                            <option value="investment_contribution">Investment contribution</option>
                             <option value="other">Other</option>
                           </select>
                           <select
@@ -810,6 +913,47 @@ export default function PaymentsPage() {
                           placeholder="Term months"
                           className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
                         />
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          <input
+                            value={editState.payeeName}
+                            onChange={(event) =>
+                              setEditState((previous) =>
+                                previous ? { ...previous, payeeName: event.target.value } : previous,
+                              )
+                            }
+                            placeholder="Payee name"
+                            className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            max="28"
+                            value={editState.dueDay}
+                            onChange={(event) =>
+                              setEditState((previous) =>
+                                previous ? { ...previous, dueDay: event.target.value } : previous,
+                              )
+                            }
+                            placeholder="Due day"
+                            className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                          />
+                          <select
+                            value={editState.payFromAccountId}
+                            onChange={(event) =>
+                              setEditState((previous) =>
+                                previous ? { ...previous, payFromAccountId: event.target.value } : previous,
+                              )
+                            }
+                            className="rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                          >
+                            <option value="">Pay from account (optional)</option>
+                            {accounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         {editErrorMessage ? (
                           <p className="text-xs text-warning">{editErrorMessage}</p>
                         ) : null}
@@ -839,24 +983,44 @@ export default function PaymentsPage() {
                             <p className="text-xs text-muted">
                               {paymentTypeLabel(item.type)} • {monthLabel(item.monthKey)}
                             </p>
-                            <p className="text-xs text-muted">
-                              Due {new Date(item.dueDate).toISOString().slice(0, 10)}
-                            </p>
+                            {(() => {
+                              const reminder = payments.find((p) => p.id === item.paymentReminderId);
+                              const payeeName = reminder?.payeeName;
+                              const dueDay = reminder?.dueDay;
+                              const payFromId = item.payFromAccountId ?? reminder?.payFromAccountId;
+                              const payFromAccount = payFromId
+                                ? accounts.find((a) => a.id === payFromId)
+                                : null;
+                              return (
+                                <>
+                                  {payeeName ? (
+                                    <p className="text-xs text-muted">Payee: {payeeName}</p>
+                                  ) : null}
+                                  {dueDay ? (
+                                    <p className="text-xs text-muted">Due day {dueDay}</p>
+                                  ) : (
+                                    <p className="text-xs text-muted">
+                                      Due {new Date(item.dueDate).toISOString().slice(0, 10)}
+                                    </p>
+                                  )}
+                                  {payFromAccount ? (
+                                    <p className="text-xs text-muted">From: {payFromAccount.name}</p>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                             <p className="mt-1 text-sm text-foreground">
                               {formatMoney((item.amountMinor ?? 0) / 100, item.currency)}
                             </p>
                           </div>
-                          <span
-                            className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                              item.status === "paid"
-                                ? "bg-green-100 text-green-700"
-                                : item.status === "skipped"
-                                  ? "bg-border text-muted"
-                                  : "bg-accent/15 text-accent"
-                            }`}
-                          >
-                            {item.status === "paid" ? "Paid" : item.status === "skipped" ? "Skipped" : "Upcoming"}
-                          </span>
+                          {(() => {
+                            const badge = instanceStatusBadge(item.status);
+                            return (
+                              <span className={`rounded-full px-2 py-1 text-xs font-semibold ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            );
+                          })()}
                         </div>
 
                         <div className="mt-3 flex gap-2">

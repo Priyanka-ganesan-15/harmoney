@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { NextResponse } from "next/server";
 import { buildVisibilityQuery, requireHouseholdContext } from "@/lib/permissions";
 import { Account } from "@/server/models/account";
+import { AccountBalanceSnapshot } from "@/server/models/account-balance-snapshot";
 import { LedgerEntry } from "@/server/models/ledger-entry";
 
 const LIABILITY_KINDS = new Set(["credit", "loan"]);
@@ -122,23 +123,50 @@ export async function GET(request: Request) {
       });
     }
 
+    const currentMonthStart = new Date(
+      Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+    );
+    const useHistoricalSnapshots = end <= currentMonthStart;
+
     const [balanceSummary, flowSummary] = await Promise.all([
-      LedgerEntry.aggregate<{ _id: Types.ObjectId; totalMinor: number }>([
-        {
-          $match: {
-            householdId: new Types.ObjectId(context.householdId),
-            accountId: { $in: accountIds },
-            occurredAt: { $lt: end },
-            ...visibilityQuery,
-          },
-        },
-        {
-          $group: {
-            _id: "$accountId",
-            totalMinor: { $sum: "$amountMinor" },
-          },
-        },
-      ]),
+      useHistoricalSnapshots
+        ? AccountBalanceSnapshot.aggregate<{ _id: Types.ObjectId; totalMinor: number }>([
+            {
+              $match: {
+                householdId: new Types.ObjectId(context.householdId),
+                accountId: { $in: accountIds },
+                snapshotDate: { $lt: end },
+              },
+            },
+            {
+              $sort: {
+                snapshotDate: -1,
+                createdAt: -1,
+              },
+            },
+            {
+              $group: {
+                _id: "$accountId",
+                totalMinor: { $first: "$balanceMinor" },
+              },
+            },
+          ])
+        : LedgerEntry.aggregate<{ _id: Types.ObjectId; totalMinor: number }>([
+            {
+              $match: {
+                householdId: new Types.ObjectId(context.householdId),
+                accountId: { $in: accountIds },
+                occurredAt: { $lt: end },
+                ...visibilityQuery,
+              },
+            },
+            {
+              $group: {
+                _id: "$accountId",
+                totalMinor: { $sum: "$amountMinor" },
+              },
+            },
+          ]),
       LedgerEntry.aggregate<{ _id: string; totalMinor: number }>([
         {
           $match: {
@@ -240,7 +268,7 @@ export async function GET(request: Request) {
       month,
       periodLabel,
       hasData: true,
-      dataState: end > new Date() ? "projected" : "actual",
+      dataState: end > new Date() ? "projected" : useHistoricalSnapshots ? "historical" : "actual",
       accountCount: activeAccounts.length,
       wealth: {
         netWorthMinor,

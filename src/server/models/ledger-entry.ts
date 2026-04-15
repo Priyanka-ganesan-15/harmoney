@@ -82,6 +82,30 @@ const ledgerEntrySchema = new Schema(
       required: true,
       default: "manual",
     },
+    /**
+     * Review lifecycle — drives the uncategorized / needs-attention queue.
+     * New entries default to "pending" until the user confirms or ignores them.
+     */
+    reviewStatus: {
+      type: String,
+      enum: ["pending", "reviewed", "ignored"],
+      required: true,
+      default: "pending",
+      index: true,
+    },
+    /** Normalized merchant or payee name (e.g. from import or user edit). */
+    merchantName: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    /** Links this entry to the payment instance it settled, enabling match tracking. */
+    linkedPaymentInstanceId: {
+      type: Schema.Types.ObjectId,
+      ref: "PaymentInstance",
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -89,6 +113,7 @@ const ledgerEntrySchema = new Schema(
 );
 
 ledgerEntrySchema.index({ householdId: 1, accountId: 1, occurredAt: -1 });
+ledgerEntrySchema.index({ householdId: 1, reviewStatus: 1, occurredAt: -1 });
 
 export type LedgerEntryDocument = InferSchemaType<typeof ledgerEntrySchema>;
 
@@ -101,6 +126,23 @@ if (existingLedgerEntryModel && !existingLedgerEntryModel.schema.path("categoryI
       ref: "Category",
       default: null,
       index: true,
+    },
+  });
+}
+
+if (existingLedgerEntryModel && !existingLedgerEntryModel.schema.path("reviewStatus")) {
+  existingLedgerEntryModel.schema.add({
+    reviewStatus: {
+      type: String,
+      enum: ["pending", "reviewed", "ignored"],
+      required: true,
+      default: "pending",
+    },
+    merchantName: { type: String, default: null, trim: true },
+    linkedPaymentInstanceId: {
+      type: Schema.Types.ObjectId,
+      ref: "PaymentInstance",
+      default: null,
     },
   });
 }

@@ -37,6 +37,7 @@ export async function GET(request: Request) {
     const accountId = (url.searchParams.get("accountId") ?? "").trim();
     const categoryId = (url.searchParams.get("categoryId") ?? "").trim();
     const type = (url.searchParams.get("type") ?? "").trim();
+    const reviewStatus = (url.searchParams.get("reviewStatus") ?? "").trim();
     const startDate = (url.searchParams.get("startDate") ?? "").trim();
     const endDate = (url.searchParams.get("endDate") ?? "").trim();
     const minAmount = (url.searchParams.get("minAmount") ?? "").trim();
@@ -87,6 +88,11 @@ export async function GET(request: Request) {
 
     if (type) {
       entryQuery.entryType = type;
+    }
+
+    const validReviewStatuses = new Set(["pending", "reviewed", "ignored"]);
+    if (reviewStatus && validReviewStatuses.has(reviewStatus)) {
+      entryQuery.reviewStatus = reviewStatus;
     }
 
     if (query) {
@@ -144,6 +150,8 @@ export async function GET(request: Request) {
         amountMinor: entry.amountMinor,
         currency: entry.currency,
         description: entry.description,
+        merchantName: entry.merchantName ?? null,
+        reviewStatus: entry.reviewStatus ?? "pending",
         occurredAt: entry.occurredAt,
       })),
     });

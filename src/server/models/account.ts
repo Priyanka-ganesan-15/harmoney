@@ -51,7 +51,18 @@ const accountSchema = new Schema(
       default: null,
       min: 0,
     },
+    creditLimitMinor: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     paymentDueDay: {
+      type: Number,
+      default: null,
+      min: 1,
+      max: 28,
+    },
+    statementClosingDay: {
       type: Number,
       default: null,
       min: 1,
@@ -61,6 +72,19 @@ const accountSchema = new Schema(
       type: Number,
       default: null,
       min: 0,
+    },
+    /** Whether the account is jointly owned or individual. */
+    ownerType: {
+      type: String,
+      enum: ["joint", "individual"],
+      required: true,
+      default: "joint",
+    },
+    /** Set when ownerType is "individual" — points to the owning household member. */
+    ownerUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
     accessScope: {
       type: String,

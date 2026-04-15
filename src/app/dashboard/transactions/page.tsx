@@ -18,6 +18,8 @@ type Entry = {
   amountMinor: number;
   currency: string;
   description: string;
+  merchantName?: string | null;
+  reviewStatus?: "pending" | "reviewed" | "ignored";
   occurredAt: string;
 };
 
@@ -30,6 +32,47 @@ type CategoryOption = {
 type BudgetStatusResponse = {
   status?: "open" | "closed";
 };
+
+type TransactionFilters = {
+  query: string;
+  accountId: string;
+  categoryId: string;
+  entryType: string;
+  reviewStatus: string;
+  startDate: string;
+  endDate: string;
+  minAmount: string;
+  maxAmount: string;
+};
+
+function getInitialFilters(): TransactionFilters {
+  if (typeof window === "undefined") {
+    return {
+      query: "",
+      accountId: "",
+      categoryId: "",
+      entryType: "",
+      reviewStatus: "",
+      startDate: "",
+      endDate: "",
+      minAmount: "",
+      maxAmount: "",
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  return {
+    query: params.get("query") ?? "",
+    accountId: params.get("accountId") ?? "",
+    categoryId: params.get("categoryId") ?? "",
+    entryType: params.get("type") ?? "",
+    reviewStatus: params.get("reviewStatus") ?? "",
+    startDate: params.get("startDate") ?? "",
+    endDate: params.get("endDate") ?? "",
+    minAmount: params.get("minAmount") ?? "",
+    maxAmount: params.get("maxAmount") ?? "",
+  };
+}
 
 function toMonthKey(value: string | Date) {
   const date = typeof value === "string" ? new Date(value) : value;
@@ -65,17 +108,9 @@ export default function TransactionsPage() {
   } | null>(null);
   const [closedMonths, setClosedMonths] = useState<Record<string, boolean>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [searchInput, setSearchInput] = useState("");
-  const [filters, setFilters] = useState({
-    query: "",
-    accountId: "",
-    categoryId: "",
-    entryType: "",
-    startDate: "",
-    endDate: "",
-    minAmount: "",
-    maxAmount: "",
-  });
+  const [searchInput, setSearchInput] = useState(() => getInitialFilters().query);
+  const [filters, setFilters] = useState<TransactionFilters>(() => getInitialFilters());
+  const [isFiltersDrawerOpen, setIsFiltersDrawerOpen] = useState(false);
 
   const currentMonthKey = toMonthKey(new Date());
   const isCurrentMonthClosed = Boolean(closedMonths[currentMonthKey]);
@@ -87,10 +122,21 @@ export default function TransactionsPage() {
     Boolean(filters.accountId) ||
     Boolean(filters.categoryId) ||
     Boolean(filters.entryType) ||
+    Boolean(filters.reviewStatus) ||
     Boolean(filters.startDate) ||
     Boolean(filters.endDate) ||
     Boolean(filters.minAmount) ||
     Boolean(filters.maxAmount);
+  const activeFilterCount = [
+    filters.accountId,
+    filters.categoryId,
+    filters.entryType,
+    filters.reviewStatus,
+    filters.startDate,
+    filters.endDate,
+    filters.minAmount,
+    filters.maxAmount,
+  ].filter(Boolean).length;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -101,30 +147,6 @@ export default function TransactionsPage() {
       window.clearTimeout(timeout);
     };
   }, [searchInput]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const query = params.get("query") ?? "";
-    const accountId = params.get("accountId") ?? "";
-    const categoryId = params.get("categoryId") ?? "";
-    const entryType = params.get("type") ?? "";
-    const startDate = params.get("startDate") ?? "";
-    const endDate = params.get("endDate") ?? "";
-    const minAmount = params.get("minAmount") ?? "";
-    const maxAmount = params.get("maxAmount") ?? "";
-
-    setSearchInput(query);
-    setFilters({
-      query,
-      accountId,
-      categoryId,
-      entryType,
-      startDate,
-      endDate,
-      minAmount,
-      maxAmount,
-    });
-  }, []);
 
   const loadMonthStatusMap = useCallback(async (monthKeys: string[]) => {
     const uniqueMonthKeys = [...new Set(monthKeys)];
@@ -151,6 +173,7 @@ export default function TransactionsPage() {
     if (filters.accountId) params.set("accountId", filters.accountId);
     if (filters.categoryId) params.set("categoryId", filters.categoryId);
     if (filters.entryType) params.set("type", filters.entryType);
+    if (filters.reviewStatus) params.set("reviewStatus", filters.reviewStatus);
     if (filters.startDate) params.set("startDate", filters.startDate);
     if (filters.endDate) params.set("endDate", filters.endDate);
     if (filters.minAmount) params.set("minAmount", filters.minAmount);
@@ -316,11 +339,38 @@ export default function TransactionsPage() {
       accountId: "",
       categoryId: "",
       entryType: "",
+      reviewStatus: "",
       startDate: "",
       endDate: "",
       minAmount: "",
       maxAmount: "",
     });
+  }
+
+  function applyQuickFilter(kind: "pending" | "uncategorized" | "this-month" | "clear") {
+    if (kind === "clear") {
+      clearFilters();
+      return;
+    }
+
+    if (kind === "pending") {
+      setFilters((previous) => ({ ...previous, reviewStatus: "pending" }));
+      return;
+    }
+
+    if (kind === "uncategorized") {
+      setFilters((previous) => ({ ...previous, categoryId: "none" }));
+      return;
+    }
+
+    const today = new Date();
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(today.getUTCDate()).padStart(2, "0");
+    const start = `${year}-${month}-01`;
+    const end = `${year}-${month}-${day}`;
+
+    setFilters((previous) => ({ ...previous, startDate: start, endDate: end }));
   }
 
   function beginEdit(entry: Entry) {
@@ -574,113 +624,21 @@ export default function TransactionsPage() {
         <p className="text-sm uppercase tracking-[0.22em] text-muted">Recent transactions</p>
 
         <div className="mt-4 space-y-3 rounded-xl border border-border bg-surface p-3">
-          <input
-            data-testid="tx-filter-search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search description"
-            className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
-          />
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <select
-              data-testid="tx-filter-account"
-              value={filters.accountId}
-              onChange={(event) =>
-                setFilters((previous) => ({ ...previous, accountId: event.target.value }))
-              }
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-            >
-              <option value="">All accounts</option>
-              {accounts.map((account) => (
-                <option key={`filter-account-${account.id}`} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              data-testid="tx-filter-category"
-              value={filters.categoryId}
-              onChange={(event) =>
-                setFilters((previous) => ({ ...previous, categoryId: event.target.value }))
-              }
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-            >
-              <option value="">All categories</option>
-              <option value="none">No category</option>
-              {categories.map((category) => (
-                <option key={`filter-category-${category.id}`} value={category.id}>
-                  {category.name} ({category.kind})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <select
-              data-testid="tx-filter-type"
-              value={filters.entryType}
-              onChange={(event) =>
-                setFilters((previous) => ({ ...previous, entryType: event.target.value }))
-              }
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-            >
-              <option value="">All types</option>
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-              <option value="transfer_out">Transfer out</option>
-              <option value="transfer_in">Transfer in</option>
-              <option value="opening_balance">Opening balance</option>
-            </select>
-
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                data-testid="tx-filter-start-date"
-                type="date"
-                value={filters.startDate}
-                onChange={(event) =>
-                  setFilters((previous) => ({ ...previous, startDate: event.target.value }))
-                }
-                className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-              />
-              <input
-                data-testid="tx-filter-end-date"
-                type="date"
-                value={filters.endDate}
-                onChange={(event) =>
-                  setFilters((previous) => ({ ...previous, endDate: event.target.value }))
-                }
-                className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
             <input
-              data-testid="tx-filter-min-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={filters.minAmount}
-              onChange={(event) =>
-                setFilters((previous) => ({ ...previous, minAmount: event.target.value }))
-              }
-              placeholder="Min amount"
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+              data-testid="tx-filter-search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search description"
+              className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm"
             />
-            <input
-              data-testid="tx-filter-max-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={filters.maxAmount}
-              onChange={(event) =>
-                setFilters((previous) => ({ ...previous, maxAmount: event.target.value }))
-              }
-              placeholder="Max amount"
-              className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
-            />
+            <button
+              type="button"
+              onClick={() => setIsFiltersDrawerOpen(true)}
+              className="rounded-xl border border-border px-3 py-2 text-xs font-semibold"
+            >
+              Advanced filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}
+            </button>
             <button
               data-testid="tx-filter-clear"
               type="button"
@@ -688,7 +646,38 @@ export default function TransactionsPage() {
               disabled={!hasActiveFilters && searchInput.length === 0}
               className="rounded-xl border border-border px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-60"
             >
-              Clear filters
+              Clear
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => applyQuickFilter("pending")}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold"
+            >
+              Pending review
+            </button>
+            <button
+              type="button"
+              onClick={() => applyQuickFilter("uncategorized")}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold"
+            >
+              Uncategorized
+            </button>
+            <button
+              type="button"
+              onClick={() => applyQuickFilter("this-month")}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold"
+            >
+              This month
+            </button>
+            <button
+              type="button"
+              onClick={() => applyQuickFilter("clear")}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-semibold"
+            >
+              Reset chips
             </button>
           </div>
         </div>
@@ -799,6 +788,22 @@ export default function TransactionsPage() {
               ) : (
                 <>
                   <p className="font-medium text-foreground">{entry.description || entry.entryType}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                        entry.reviewStatus === "reviewed"
+                          ? "bg-green-100 text-green-700"
+                          : entry.reviewStatus === "ignored"
+                            ? "bg-border text-muted"
+                            : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {entry.reviewStatus ?? "pending"}
+                    </span>
+                    {entry.merchantName ? (
+                      <span className="text-xs text-muted">{entry.merchantName}</span>
+                    ) : null}
+                  </div>
                   <p className="text-sm text-foreground">
                     {formatMoney(entry.amountMinor / 100, entry.currency)}
                   </p>
@@ -831,6 +836,147 @@ export default function TransactionsPage() {
           ))}
         </ul>
       </section>
+
+      {isFiltersDrawerOpen ? (
+        <div className="fixed inset-0 z-50 flex">
+          <button
+            type="button"
+            aria-label="Close filters"
+            className="h-full w-full bg-black/20"
+            onClick={() => setIsFiltersDrawerOpen(false)}
+          />
+
+          <aside className="panel border-border h-full w-full max-w-xl border-l bg-background p-6">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm uppercase tracking-[0.22em] text-muted">Advanced filters</p>
+              <button
+                type="button"
+                onClick={() => setIsFiltersDrawerOpen(false)}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <select
+                  data-testid="tx-filter-account"
+                  value={filters.accountId}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, accountId: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">All accounts</option>
+                  {accounts.map((account) => (
+                    <option key={`filter-account-${account.id}`} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  data-testid="tx-filter-category"
+                  value={filters.categoryId}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, categoryId: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">All categories</option>
+                  <option value="none">No category</option>
+                  {categories.map((category) => (
+                    <option key={`filter-category-${category.id}`} value={category.id}>
+                      {category.name} ({category.kind})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <select
+                  data-testid="tx-filter-type"
+                  value={filters.entryType}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, entryType: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">All types</option>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                  <option value="transfer_out">Transfer out</option>
+                  <option value="transfer_in">Transfer in</option>
+                  <option value="opening_balance">Opening balance</option>
+                </select>
+
+                <select
+                  data-testid="tx-filter-review-status"
+                  value={filters.reviewStatus}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, reviewStatus: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">All review statuses</option>
+                  <option value="pending">Pending review</option>
+                  <option value="reviewed">Reviewed</option>
+                  <option value="ignored">Ignored</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  data-testid="tx-filter-start-date"
+                  type="date"
+                  value={filters.startDate}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, startDate: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                />
+                <input
+                  data-testid="tx-filter-end-date"
+                  type="date"
+                  value={filters.endDate}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, endDate: event.target.value }))
+                  }
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  data-testid="tx-filter-min-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={filters.minAmount}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, minAmount: event.target.value }))
+                  }
+                  placeholder="Min amount"
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                />
+                <input
+                  data-testid="tx-filter-max-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={filters.maxAmount}
+                  onChange={(event) =>
+                    setFilters((previous) => ({ ...previous, maxAmount: event.target.value }))
+                  }
+                  placeholder="Max amount"
+                  className="rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </main>
   );
 }
