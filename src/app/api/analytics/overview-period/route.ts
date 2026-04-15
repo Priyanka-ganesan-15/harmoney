@@ -6,6 +6,7 @@ import { LedgerEntry } from "@/server/models/ledger-entry";
 
 const LIABILITY_KINDS = new Set(["credit", "loan"]);
 const LIQUID_KINDS = new Set(["depository", "cash"]);
+const RETIREMENT_NAME_HINT = /retirement|401\(k\)|ira/i;
 
 function resolvePeriod(url: URL) {
   const now = new Date();
@@ -183,7 +184,7 @@ export async function GET(request: Request) {
     const brokerageMinor = balanceSummary.reduce((sum, row) => {
       const account = accountMap.get(row._id.toString());
       if (!account || account.kind !== "investment") return sum;
-      if (/retirement|401\(k\)|ira/i.test(account.name ?? "")) return sum;
+      if (RETIREMENT_NAME_HINT.test(account.name ?? "")) return sum;
       return sum + row.totalMinor;
     }, 0);
 
@@ -194,7 +195,7 @@ export async function GET(request: Request) {
         return sum + row.totalMinor;
       }
       if (account.kind !== "investment") return sum;
-      if (!/retirement|401\(k\)|ira/i.test(account.name ?? "")) return sum;
+      if (!RETIREMENT_NAME_HINT.test(account.name ?? "")) return sum;
       return sum + row.totalMinor;
     }, 0);
 
@@ -210,21 +211,20 @@ export async function GET(request: Request) {
       return sum + row.totalMinor;
     }, 0);
 
-    const trackedAssetKinds = new Set([
-      "depository",
-      "cash",
-      "investment",
-      "retirement",
-      "real_estate",
-      "precious_metals",
-      "other",
-    ]);
-
     const otherAssetsMinor = balanceSummary.reduce((sum, row) => {
       const account = accountMap.get(row._id.toString());
       if (!account) return sum;
       if (LIABILITY_KINDS.has(account.kind)) return sum;
-      if (trackedAssetKinds.has(account.kind)) return sum;
+      if (LIQUID_KINDS.has(account.kind)) return sum;
+      if (account.kind === "investment") {
+        if (RETIREMENT_NAME_HINT.test(account.name ?? "")) return sum;
+        return sum;
+      }
+      if (account.kind === "retirement") return sum;
+      if (account.kind === "real_estate") return sum;
+      if (account.kind === "precious_metals") return sum;
+
+      // Includes explicit "other" kind and any future asset kinds not yet bucketed.
       return sum + row.totalMinor;
     }, 0);
 
